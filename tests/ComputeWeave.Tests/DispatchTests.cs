@@ -55,12 +55,19 @@ public partial class DispatchTests
         Assert.Fail();
     }
 
+    /// <summary>
+    /// A range covering more thread groups than a dispatch takes names the argument it came from.
+    /// </summary>
+    /// <remarks>
+    /// The group count is worked out inside the dispatch, so naming it would name something the caller never
+    /// wrote. The axis and the range a shader can be dispatched over are left to the message.
+    /// </remarks>
     [CombinatorialTestMethod]
     [AllDevices]
-    [Data(int.MaxValue, 1, 1, "groupsX")]
-    [Data(1, int.MaxValue, 1, "groupsY")]
-    [Data(1, 1, int.MaxValue, "groupsZ")]
-    public void Verify_ThreadIds_OutOfRange_ParameterName(Device device, int x, int y, int z, string parameterName)
+    [Data(int.MaxValue, 1, 1, "x", "X")]
+    [Data(1, int.MaxValue, 1, "y", "Y")]
+    [Data(1, 1, int.MaxValue, "z", "Z")]
+    public void Verify_ThreadIds_OutOfRange_ParameterName(Device device, int x, int y, int z, string parameterName, string axis)
     {
         using ReadWriteTexture3D<int4> buffer = device.Get().AllocateReadWriteTexture3D<int4>(50, 50, 50);
 
@@ -68,6 +75,33 @@ public partial class DispatchTests
             () => device.Get().For(x, y, z, new ThreadIdsShader(buffer)));
 
         Assert.AreEqual(parameterName, exception.ParamName);
+        Assert.AreEqual(int.MaxValue, exception.ActualValue);
+        Assert.IsTrue(exception.Message.Contains($"{axis} axis", StringComparison.Ordinal), exception.Message);
+    }
+
+    /// <summary>
+    /// The same refusal from the overloads that take fewer ranges, which name the arguments those take.
+    /// </summary>
+    /// <remarks>
+    /// The axes an overload fixes at one never reach the limit, a single iteration covering one thread group
+    /// whatever the group size is, so the axis at fault always has an argument of its own to name.
+    /// </remarks>
+    [CombinatorialTestMethod]
+    [AllDevices]
+    public void Verify_ThreadIds_OutOfRange_ParameterNameFromFewerRanges(Device device)
+    {
+        using ReadWriteTexture3D<int4> buffer = device.Get().AllocateReadWriteTexture3D<int4>(50, 50, 50);
+
+        ArgumentOutOfRangeException one = Assert.ThrowsExactly<ArgumentOutOfRangeException>(
+            () => device.Get().For(int.MaxValue, new ThreadIdsShader(buffer)));
+
+        ArgumentOutOfRangeException two = Assert.ThrowsExactly<ArgumentOutOfRangeException>(
+            () => device.Get().For(1, int.MaxValue, new ThreadIdsShader(buffer)));
+
+        Assert.AreEqual("x", one.ParamName);
+        Assert.AreEqual("y", two.ParamName);
+        Assert.AreEqual(int.MaxValue, one.ActualValue);
+        Assert.AreEqual(int.MaxValue, two.ActualValue);
     }
 
     [AutoConstructor]
