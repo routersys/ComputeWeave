@@ -268,9 +268,21 @@ public struct ComputeContext : IDisposable, IAsyncDisposable
             }
         }
 
-        default(ArgumentOutOfRangeException).ThrowIfNotBetweenOrEqual(groupsX, 1, D3D11.D3D11_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION);
-        default(ArgumentOutOfRangeException).ThrowIfNotBetweenOrEqual(groupsY, 1, D3D11.D3D11_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION);
-        default(ArgumentOutOfRangeException).ThrowIfNotBetweenOrEqual(groupsZ, 1, D3D11.D3D11_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION);
+        // A range is refused when it is not positive, so a group count is never below one
+        if (groupsX > D3D11.D3D11_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION)
+        {
+            ThrowForTooManyThreadGroups(nameof(x), x, "X", T.ThreadsX);
+        }
+
+        if (groupsY > D3D11.D3D11_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION)
+        {
+            ThrowForTooManyThreadGroups(nameof(y), y, "Y", T.ThreadsY);
+        }
+
+        if (groupsZ > D3D11.D3D11_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION)
+        {
+            ThrowForTooManyThreadGroups(nameof(z), z, "Z", T.ThreadsZ);
+        }
 
         PipelineData pipelineData = PipelineDataLoader<T>.GetPipelineData(this.device!);
 
@@ -318,8 +330,17 @@ public struct ComputeContext : IDisposable, IAsyncDisposable
             ThrowForPartialThreadGroup(nameof(texture));
         }
 
-        default(ArgumentOutOfRangeException).ThrowIfNotBetweenOrEqual(groupsX, 1, D3D11.D3D11_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION);
-        default(ArgumentOutOfRangeException).ThrowIfNotBetweenOrEqual(groupsY, 1, D3D11.D3D11_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION);
+        // The texture is smaller than the groups a dispatch takes on every device, so neither of these can
+        // throw today. They are kept so that a device or a texture bound growing later is answered here
+        if (groupsX > D3D11.D3D11_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION)
+        {
+            ThrowForTooManyThreadGroups(nameof(texture), x, "X", T.ThreadsX);
+        }
+
+        if (groupsY > D3D11.D3D11_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION)
+        {
+            ThrowForTooManyThreadGroups(nameof(texture), y, "Y", T.ThreadsY);
+        }
 
         PipelineData pipelineData = PipelineDataLoader<T>.GetPipelineData(this.device!);
 
@@ -697,6 +718,26 @@ public struct ComputeContext : IDisposable, IAsyncDisposable
             FullThreadGroupsRule +
             $" This dispatch fixes the {axis} axis at one, which is not a multiple of the {threads} threads the group holds on it, and the threads " +
             "left out never reach the barrier the others wait at. A shader like this one has to be dispatched with a range for that axis.");
+    }
+
+    /// <summary>
+    /// Throws an <see cref="ArgumentOutOfRangeException"/> for a range covering more thread groups than a dispatch takes.
+    /// </summary>
+    /// <param name="parameterName">The name of the argument the range came from.</param>
+    /// <param name="range">The number of iterations the range asks for.</param>
+    /// <param name="axis">The axis the thread groups are counted on, which the message names.</param>
+    /// <param name="threads">The number of threads the thread group has on that axis.</param>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown for <paramref name="parameterName"/>.</exception>
+    [DoesNotReturn]
+    private static void ThrowForTooManyThreadGroups(string parameterName, int range, string axis, int threads)
+    {
+        throw new ArgumentOutOfRangeException(
+            parameterName,
+            range,
+            $"A dispatch covers at most {D3D11.D3D11_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION} thread groups on each axis, so a shader whose " +
+            $"thread group has {threads} threads on the {axis} axis is dispatched over at most " +
+            $"{(long)D3D11.D3D11_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION * threads} iterations there. " +
+            "A range past that has to be split across several dispatches.");
     }
 
     private enum ContextState
