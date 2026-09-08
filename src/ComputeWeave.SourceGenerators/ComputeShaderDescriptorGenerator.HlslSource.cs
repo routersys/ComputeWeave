@@ -669,7 +669,7 @@ partial class ComputeShaderDescriptorGenerator
             HlslSourceSyntaxProcessor.WriteMethodDeclarations(writer, processedMethods, typeMethodDeclarations);
 
             // Entry point
-            writer.WriteLine("[NumThreads(__GroupSize__get_X, __GroupSize__get_Y, __GroupSize__get_Z)]");
+            writer.WriteLine("[numthreads(__GroupSize__get_X, __GroupSize__get_Y, __GroupSize__get_Z)]");
             writer.WriteLine(executeMethod);
 
             return writer.ToString();

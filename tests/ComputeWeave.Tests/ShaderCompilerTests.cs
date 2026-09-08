@@ -328,7 +328,7 @@ namespace ComputeWeave.Tests
                 
                 RWTexture2D<unorm float4> __outputTexture : register(u0);
                 
-                [NumThreads(__GroupSize__get_X, __GroupSize__get_Y, __GroupSize__get_Z)]
+                [numthreads(__GroupSize__get_X, __GroupSize__get_Y, __GroupSize__get_Z)]
                 void Execute(int3 ThreadIds : SV_DispatchThreadID)
                 {
                     if (ThreadIds.x < __x && ThreadIds.y < __y)
@@ -362,7 +362,7 @@ namespace ComputeWeave.Tests
                 
                 RWStructuredBuffer<float> __reserved__buffer : register(u0);
                 
-                [NumThreads(__GroupSize__get_X, __GroupSize__get_Y, __GroupSize__get_Z)]
+                [numthreads(__GroupSize__get_X, __GroupSize__get_Y, __GroupSize__get_Z)]
                 void Execute(int3 ThreadIds : SV_DispatchThreadID)
                 {
                     if (ThreadIds.x < __x && ThreadIds.y < __y && ThreadIds.z < __z)
@@ -705,7 +705,7 @@ namespace ComputeWeave.Tests
 
                 globallycoherent RWStructuredBuffer<int> __reserved__buffer : register(u0);
 
-                [NumThreads(__GroupSize__get_X, __GroupSize__get_Y, __GroupSize__get_Z)]
+                [numthreads(__GroupSize__get_X, __GroupSize__get_Y, __GroupSize__get_Z)]
                 void Execute(int3 ThreadIds : SV_DispatchThreadID)
                 {
                     if (ThreadIds.x < __x && ThreadIds.y < __y && ThreadIds.z < __z)
@@ -811,7 +811,7 @@ namespace ComputeWeave.Tests
                     d = 0;
                 }
 
-                [NumThreads(__GroupSize__get_X, __GroupSize__get_Y, __GroupSize__get_Z)]
+                [numthreads(__GroupSize__get_X, __GroupSize__get_Y, __GroupSize__get_Z)]
                 void Execute(int3 ThreadIds : SV_DispatchThreadID)
                 {
                     if (ThreadIds.x < __x && ThreadIds.y < __y && ThreadIds.z < __z)
@@ -883,7 +883,7 @@ namespace ComputeWeave.Tests
                     return x + y;
                 }
 
-                [NumThreads(__GroupSize__get_X, __GroupSize__get_Y, __GroupSize__get_Z)]
+                [numthreads(__GroupSize__get_X, __GroupSize__get_Y, __GroupSize__get_Z)]
                 void Execute(int3 ThreadIds : SV_DispatchThreadID)
                 {
                     if (ThreadIds.x < __x && ThreadIds.y < __y && ThreadIds.z < __z)
@@ -976,7 +976,7 @@ namespace ComputeWeave.Tests
                     return 42;
                 }
 
-                [NumThreads(__GroupSize__get_X, __GroupSize__get_Y, __GroupSize__get_Z)]
+                [numthreads(__GroupSize__get_X, __GroupSize__get_Y, __GroupSize__get_Z)]
                 void Execute(int3 ThreadIds : SV_DispatchThreadID)
                 {
                     if (ThreadIds.x < __x && ThreadIds.y < __y && ThreadIds.z < __z)
@@ -1121,7 +1121,7 @@ namespace ComputeWeave.Tests
                     return x * 4;
                 }
 
-                [NumThreads(__GroupSize__get_X, __GroupSize__get_Y, __GroupSize__get_Z)]
+                [numthreads(__GroupSize__get_X, __GroupSize__get_Y, __GroupSize__get_Z)]
                 void Execute(int3 ThreadIds : SV_DispatchThreadID)
                 {
                     if (ThreadIds.x < __x && ThreadIds.y < __y && ThreadIds.z < __z)
@@ -1276,7 +1276,7 @@ namespace ComputeWeave.Tests
                     this.value = value;
                 }
 
-                [NumThreads(__GroupSize__get_X, __GroupSize__get_Y, __GroupSize__get_Z)]
+                [numthreads(__GroupSize__get_X, __GroupSize__get_Y, __GroupSize__get_Z)]
                 void Execute(int3 ThreadIds : SV_DispatchThreadID)
                 {
                     if (ThreadIds.x < __x && ThreadIds.y < __y && ThreadIds.z < __z)
