@@ -94,7 +94,7 @@ Retiring a shared texture generation drains the external queue before the extern
 
 ## Compile-time validation
 
-The declarations above are checked by analyzers that report 111 diagnostics with the `CMPW` prefix, covering attribute placement, host and pipeline method shape, slot declaration, resource contracts and generated overload conflicts. Some carry a code fix. Runtime rejections use the same `CMPW` prefix, told apart by their number band.
+The declarations above are checked by analyzers that report 111 diagnostics with the `CMPW` prefix, covering attribute placement, host and pipeline method shape, slot declaration, resource contracts and generated overload conflicts. Some carry a code fix. At run time an identifier is carried only by the rejections that implement `IComputeDiagnostic`, which are `ComputeDiagnosticException` and `GraphicsDeviceMismatchException`; their `DiagnosticId` uses the same `CMPW` prefix in a number band of its own. Argument validation carries no identifier: it throws the framework exception types, `ArgumentOutOfRangeException` among them, and names the argument instead.
 
 ## More
 
