@@ -291,6 +291,10 @@ jobs:
       - name: README の件数を検証
         run: pwsh build/verify-readme-counts.ps1
 
+      # 種別の食い違いはノートを作る工程まで現れない。そこは公開の後なので、公開の前に確かめる。
+      - name: リリースノートの種別を検証
+        run: pwsh build/verify-release-note-categories.ps1
+
       - name: パッケージをアーティファクトとして保存
         uses: actions/upload-artifact@v4
         with:
@@ -426,6 +430,8 @@ jobs:
     needs: [validate, pack, publish-nuget]
     permissions:
       contents: write
+      # ノートは併合済みプルリクエストのラベルを読んで種別ごとに並べる。
+      pull-requests: read
     defaults:
       run:
         shell: bash
@@ -442,33 +448,17 @@ jobs:
           name: nuget-packages
           path: ./artifacts
 
-      - name: コミット履歴からリリースノートを生成
+      # 見出しをそのまま並べると、上げる側に効く数件が二百件の中に埋もれる。
+      # 生成は高速リリースと同じ script が行う。二重に書くと片方だけが古くなる。
+      - name: リリースノートを生成
         env:
-          CURRENT_TAG: ${{ github.ref_name }}
-          VERSION: ${{ needs.validate.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          CURRENT_SHA=$(git rev-parse HEAD)
-          PREV=$(git tag --merged "${CURRENT_SHA}" --sort=-version:refname \
-            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-            | grep -Fxv "${CURRENT_TAG}" \
-            | head -n 1 || true)
-          if [ -n "${PREV}" ]; then
-            LOG=$(git log "${PREV}..${CURRENT_SHA}" --pretty=format:"- %s (%h)" --no-merges --)
-          else
-            LOG=$(git log -n 30 --pretty=format:"- %s (%h)" --no-merges)
-          fi
-          {
-            echo "### 変更内容"
-            printf '%s\n' "${LOG:-変更履歴を取得できませんでした。}"
-            echo ""
-            echo "### インストール"
-            echo '```sh'
-            echo "dotnet add package ComputeWeave --version ${VERSION}"
-            echo '```'
-            echo ""
-            echo "### NuGet"
-            echo "https://www.nuget.org/packages/ComputeWeave/${VERSION}"
-          } > release-notes.md
+          pwsh build/generate-release-notes.ps1 \
+            -Version "${{ needs.validate.outputs.version }}" \
+            -CurrentTag "${{ github.ref_name }}" \
+            -CurrentSha "${{ github.sha }}" \
+            -Repository "${{ github.repository }}"
 
       - name: GitHub Release を作成してパッケージを添付
         uses: softprops/action-gh-release@v3
