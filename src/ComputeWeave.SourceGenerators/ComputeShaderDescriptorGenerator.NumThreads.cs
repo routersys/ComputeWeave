@@ -1,4 +1,5 @@
 using ComputeWeave.SourceGeneration.Extensions;
+using ComputeWeave.SourceGenerators.Helpers;
 using Microsoft.CodeAnalysis;
 
 namespace ComputeWeave.SourceGenerators;
@@ -38,20 +39,12 @@ partial class ComputeShaderDescriptorGenerator
             // Check for a dispatch axis argument first
             if (attribute.ConstructorArguments is [{ Value: var defaultSize }])
             {
-                (threadsX, threadsY, threadsZ) = (DefaultThreadGroupSizes?)(defaultSize as int?) switch
-                {
-                    DefaultThreadGroupSizes.X => (64, 1, 1),
-                    DefaultThreadGroupSizes.Y => (1, 64, 1),
-                    DefaultThreadGroupSizes.Z => (1, 1, 64),
-                    DefaultThreadGroupSizes.XY => (8, 8, 1),
-                    DefaultThreadGroupSizes.XZ => (8, 1, 8),
-                    DefaultThreadGroupSizes.YZ => (1, 8, 8),
-                    DefaultThreadGroupSizes.XYZ => (4, 4, 4),
-                    _ => (0, 0, 0)
-                };
-
                 // Only enable compilation if we have valid thread group size values
-                isCompilationEnabled = (threadsX, threadsY, threadsZ) is not (0, 0, 0);
+                isCompilationEnabled = DefaultThreadGroupSizeLookup.TryGetSizes(
+                    (DefaultThreadGroupSizes?)(defaultSize as int?),
+                    out threadsX,
+                    out threadsY,
+                    out threadsZ);
             }
             // The axes are bounded on their own, and a thread group is also bounded as a whole
             else if (attribute.ConstructorArguments is not [{ Value: int explicitThreadsX }, { Value: int explicitThreadsY }, { Value: int explicitThreadsZ }] ||

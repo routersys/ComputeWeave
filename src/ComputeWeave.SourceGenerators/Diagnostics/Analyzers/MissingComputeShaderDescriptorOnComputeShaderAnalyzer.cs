@@ -85,6 +85,28 @@ public sealed class MissingComputeShaderDescriptorOnComputeShaderAnalyzer : Diag
     }
 
     /// <summary>
+    /// Checks whether a given type is a "pixel shader like" type, ie. one writing a pixel into a target texture.
+    /// </summary>
+    /// <param name="typeSymbol">The type to check.</param>
+    /// <param name="pixelShaderSymbol">The type symbol for <c>IComputeShader&lt;TPixel&gt;</c>.</param>
+    /// <returns></returns>
+    /// <remarks>
+    /// A type carrying both shader interfaces is refused on its own, so the two kinds never overlap here.
+    /// </remarks>
+    internal static bool IsPixelShaderLikeType(INamedTypeSymbol typeSymbol, INamedTypeSymbol pixelShaderSymbol)
+    {
+        foreach (INamedTypeSymbol interfaceSymbol in typeSymbol.AllInterfaces)
+        {
+            if (SymbolEqualityComparer.Default.Equals(interfaceSymbol.ConstructedFrom, pixelShaderSymbol))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Checks whether a given type implements the shader descriptor interface.
     /// </summary>
     /// <param name="typeSymbol">The type to check.</param>
