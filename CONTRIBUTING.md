@@ -162,7 +162,7 @@ Throughout, distinguish what you observed, what you derived from reading the cod
 
 ### Labels
 
-Apply the label that matches each kind you kept in the template. The kinds and the labels correspond one for one: `bug`, `public api`, `behavior change`, `performance`, `analyzer or generator`, `documentation` and `build and ci`. Nothing applies them for you, and the automated check described below does not set them. Labels are how the merged history is filtered by kind, so a pull request that declares a kind and carries no label is invisible to that filter.
+Apply the label that matches each kind you kept in the template. The kinds and the labels correspond one for one: `bug`, `public api`, `behavior change`, `performance`, `analyzer or generator`, `documentation` and `build and ci`. Nothing applies them for you, and the automated check described below does not set them. Labels are how the merged history is filtered by kind, so a pull request that declares a kind and carries no label is invisible to that filter. They also decide where the pull request appears in the notes of the next release: the notes group the merged pull requests of a release by these labels, in the order a caller upgrading reads them, and a pull request carrying none of them is listed apart from the grouped ones.
 
 ### Automated checks
 
