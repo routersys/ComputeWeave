@@ -40,6 +40,10 @@ jobs:
       - name: 軸ごとの引数検査を検証
         run: pwsh build/verify-axis-argument-checks.ps1
 
+      # ノートを作る script は版を切るときにしか走らない。壊れたことがそこまで分からない。
+      - name: リリースノートの呼び出しを検証
+        run: pwsh build/verify-release-note-invocation.ps1
+
       - name: .NET SDK をセットアップ
         uses: actions/setup-dotnet@v4
         with:
