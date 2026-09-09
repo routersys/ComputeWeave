@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Linq;
 using ComputeWeave.SourceGeneration.Extensions;
+using ComputeWeave.SourceGenerators.Helpers;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
 using static ComputeWeave.SourceGeneration.Diagnostics.DiagnosticDescriptors;
@@ -19,6 +20,7 @@ public sealed class InvalidThreadGroupSizeAttributeUseAnalyzer : DiagnosticAnaly
         MissingThreadGroupSizeAttribute,
         InvalidThreadGroupSizeAttributeDefaultThreadGroupSizes,
         InvalidThreadGroupSizeAttributeValues,
+        InvalidThreadGroupSizeAttributeDepthOnPixelShaderLikeType,
     ];
 
     /// <inheritdoc/>
@@ -67,20 +69,18 @@ public sealed class InvalidThreadGroupSizeAttributeUseAnalyzer : DiagnosticAnaly
                 {
                     int? rawDefaultSize = defaultSize as int?;
 
-                    if ((DefaultThreadGroupSizes?)rawDefaultSize is not
-                        (DefaultThreadGroupSizes.X or
-                         DefaultThreadGroupSizes.Y or
-                         DefaultThreadGroupSizes.Z or
-                         DefaultThreadGroupSizes.XY or
-                         DefaultThreadGroupSizes.XZ or
-                         DefaultThreadGroupSizes.YZ or
-                         DefaultThreadGroupSizes.XYZ))
+                    // The named values carry sizes of their own, so the depth is read from the value they stand for
+                    if (!DefaultThreadGroupSizeLookup.TryGetSizes((DefaultThreadGroupSizes?)rawDefaultSize, out _, out _, out int defaultThreadsZ))
                     {
                         context.ReportDiagnostic(Diagnostic.Create(
                             InvalidThreadGroupSizeAttributeDefaultThreadGroupSizes,
                             attributeData.GetLocation(),
                             typeSymbol));
+
+                        return;
                     }
+
+                    ReportIfDeeperThanOnePixelShaderLikeType(context, typeSymbol, attributeData, defaultThreadsZ, pixelShaderSymbol);
 
                     return;
                 }
@@ -100,7 +100,39 @@ public sealed class InvalidThreadGroupSizeAttributeUseAnalyzer : DiagnosticAnaly
 
                     return;
                 }
+
+                ReportIfDeeperThanOnePixelShaderLikeType(context, typeSymbol, attributeData, threadsZ, pixelShaderSymbol);
             }, SymbolKind.NamedType);
         });
+    }
+
+    /// <summary>
+    /// Reports a diagnostic if a "pixel shader like" type declares a thread group deeper than one on the Z axis.
+    /// </summary>
+    /// <param name="context">The <see cref="SymbolAnalysisContext"/> to report into.</param>
+    /// <param name="typeSymbol">The shader type being analyzed.</param>
+    /// <param name="attributeData">The <c>[ThreadGroupSize]</c> attribute the sizes were read from.</param>
+    /// <param name="threadsZ">The number of threads the group holds on the Z axis.</param>
+    /// <param name="pixelShaderSymbol">The type symbol for <c>IComputeShader&lt;TPixel&gt;</c>.</param>
+    /// <remarks>
+    /// The dispatch for these shaders fixes the Z extent at one, and the generated entry point compares the X
+    /// and Y axes only, so the threads the group holds on the Z axis all reach the body for the same pixel.
+    /// </remarks>
+    private static void ReportIfDeeperThanOnePixelShaderLikeType(
+        SymbolAnalysisContext context,
+        INamedTypeSymbol typeSymbol,
+        AttributeData attributeData,
+        int threadsZ,
+        INamedTypeSymbol pixelShaderSymbol)
+    {
+        if (threadsZ > 1 &&
+            MissingComputeShaderDescriptorOnComputeShaderAnalyzer.IsPixelShaderLikeType(typeSymbol, pixelShaderSymbol))
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                InvalidThreadGroupSizeAttributeDepthOnPixelShaderLikeType,
+                attributeData.GetLocation(),
+                typeSymbol,
+                threadsZ));
+        }
     }
 }

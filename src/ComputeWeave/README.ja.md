@@ -94,7 +94,7 @@ public sealed partial class ResourceSet
 
 ## コンパイル時の検証
 
-以上の宣言はアナライザーが検査し、接頭辞 `CMPW` の診断111種類として報告します。対象は属性の位置、ホストとパイプラインメソッドの形、スロットの宣言、資源の契約、生成されるオーバーロードの衝突です。一部にはコード修正が付きます。実行時に識別子を持つ拒否は `IComputeDiagnostic` を実装するもの、すなわち `ComputeDiagnosticException` と `GraphicsDeviceMismatchException` だけです。その `DiagnosticId` は同じ `CMPW` 接頭辞を専用の番号帯で使います。引数の検査は識別子を持ちません。`ArgumentOutOfRangeException` をはじめとするフレームワークの例外型を送出し、代わりに引数の名前を載せます。
+以上の宣言はアナライザーが検査し、接頭辞 `CMPW` の診断112種類として報告します。対象は属性の位置、ホストとパイプラインメソッドの形、スロットの宣言、資源の契約、生成されるオーバーロードの衝突です。一部にはコード修正が付きます。実行時に識別子を持つ拒否は `IComputeDiagnostic` を実装するもの、すなわち `ComputeDiagnosticException` と `GraphicsDeviceMismatchException` だけです。その `DiagnosticId` は同じ `CMPW` 接頭辞を専用の番号帯で使います。引数の検査は識別子を持ちません。`ArgumentOutOfRangeException` をはじめとするフレームワークの例外型を送出し、代わりに引数の名前を載せます。
 
 ## 詳細
 

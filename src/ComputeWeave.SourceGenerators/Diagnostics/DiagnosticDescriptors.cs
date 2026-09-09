@@ -606,6 +606,22 @@ partial class DiagnosticDescriptors
         helpLinkUri: "https://github.com/routersys/ComputeWeave");
 
     /// <summary>
+    /// Gets a <see cref="DiagnosticDescriptor"/> for a pixel shader like type with a thread group deeper than one on the Z axis.
+    /// <para>
+    /// Format: <c>"The [ThreadGroupSize] attribute on shader type {0} declares {1} threads on the Z axis, and a shader writing a pixel into a target texture is dispatched over one"</c>.
+    /// </para>
+    /// </summary>
+    public static readonly DiagnosticDescriptor InvalidThreadGroupSizeAttributeDepthOnPixelShaderLikeType = new(
+        id: "CMPW0128",
+        title: "Thread group deeper than one on the Z axis for a pixel shader like type",
+        messageFormat: "The [ThreadGroupSize] attribute on shader type {0} declares {1} threads on the Z axis, and a shader writing a pixel into a target texture is dispatched over one",
+        category: "ComputeWeave.Shaders",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "A shader writing a pixel into a target texture takes its extent from that texture, which has no depth, so the dispatch asks for a single thread group on the Z axis and the generated entry point compares only the X and Y axes. Every thread the group holds on the Z axis therefore runs the body again for the same pixel, so a body with any effect beyond its returned value repeats that effect, and a body whose value depends on the Z coordinate leaves whichever thread reached the store last. Neither the generator nor the shader compiler reports anything, so without this the shader silently does the work more than once.",
+        helpLinkUri: "https://github.com/routersys/ComputeWeave");
+
+    /// <summary>
     /// Gets a <see cref="DiagnosticDescriptor"/> for HLSL bytecode shader failed due to a Win32 exception.
     /// <para>
     /// Format: <c>"The shader of type {0} failed to compile due to a Win32 exception (HRESULT: {1:X8}, Message: "{2}")"</c>.
