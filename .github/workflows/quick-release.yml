@@ -267,6 +267,10 @@ jobs:
       - name: リリースノートの種別を検証
         run: pwsh build/verify-release-note-categories.ps1
 
+      # 呼び出しの食い違いも同じで、現れるのはこの後の工程である。
+      - name: リリースノートの呼び出しを検証
+        run: pwsh build/verify-release-note-invocation.ps1
+
       - name: パッケージをアーティファクトとして保存
         uses: actions/upload-artifact@v4
         with:
