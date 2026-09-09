@@ -336,7 +336,9 @@ The declarations are checked by analyzers that report 99 diagnostics with the `C
 
 ### Generated HLSL
 
-`IComputeShaderDescriptor<T>.HlslSource` returns the HLSL the generator wrote for a shader type. The shipped path compiles it as `cs_6_0` through DXC, but the text is plain HLSL and can be taken out and compiled elsewhere, including with FXC for a Direct3D 11 device of your own.
+`IComputeShaderDescriptor<T>.HlslSource` returns the HLSL the generator wrote for a shader type. The shipped path compiles it as `cs_6_0` through DXC, but the text is plain HLSL and can be taken out and compiled elsewhere, for a Direct3D 11 device of your own among others.
+
+It is written for shader model 6. An older profile takes it only where the shader stays inside what that profile offers, so FXC compiles many of these shaders but not all: a group barrier reached under the range check the entry point applies, a typed UAV store that does not write every component, and intrinsics added after shader model 5 are each rejected there. None of that is a property of the text's bindings, which the rest of this section describes.
 
 The text describes its own bindings. Whatever a caller has to bind appears in the text: the entry point, the constant buffer with every field it holds, and every resource with its register. Nothing is left to be recovered from the generator, so a compiler's own reflection over the text gives the complete binding table.
 
