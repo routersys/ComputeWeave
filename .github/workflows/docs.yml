@@ -12,6 +12,8 @@ on:
       - "build/verify-markdown-tables.ps1"
       - "build/verify-readme-counts.ps1"
       - "build/verify-analyzer-releases.ps1"
+      - "build/verify-release-note-categories.ps1"
+      - "build/generate-release-notes.ps1"
       - "src/ComputeWeave.SourceGenerators/Diagnostics/DiagnosticDescriptors.cs"
       - "src/ComputeWeave.D2D1.SourceGenerators/Diagnostics/DiagnosticDescriptors.cs"
   pull_request:
@@ -23,6 +25,8 @@ on:
       - "build/verify-markdown-tables.ps1"
       - "build/verify-readme-counts.ps1"
       - "build/verify-analyzer-releases.ps1"
+      - "build/verify-release-note-categories.ps1"
+      - "build/generate-release-notes.ps1"
       - "src/ComputeWeave.SourceGenerators/Diagnostics/DiagnosticDescriptors.cs"
       - "src/ComputeWeave.D2D1.SourceGenerators/Diagnostics/DiagnosticDescriptors.cs"
 
@@ -52,3 +56,8 @@ jobs:
       # 重大度が動いた規則を追加した規則と同じ形で移すと、構築は通るのに履歴が二重になる。
       - name: アナライザーのリリース記録を検証
         run: pwsh build/verify-analyzer-releases.ps1
+
+      # ラベルの改名も種別の追加も Markdown の側で起きる。ノートの側が置き去りになると、
+      # 出荷して初めて分かる。
+      - name: リリースノートの種別を検証
+        run: pwsh build/verify-release-note-categories.ps1
