@@ -32,6 +32,7 @@ The same layer carries shared textures and shared fences across the Direct3D 11 
 5. [API Reference](#api-reference)
    - [Declaration attributes](#declaration-attributes)
    - [Generated members](#generated-members)
+   - [Generated HLSL](#generated-hlsl)
    - [Runtime](#runtime)
    - [Slots and bindings](#slots-and-bindings)
    - [Interoperation](#interoperation)
@@ -332,6 +333,25 @@ The declarations are checked by analyzers that report 99 diagnostics with the `C
 | `BorrowedExternalTextureView<TView> Begin<Slot>ExternalOperation()` | Borrows the external view for one operation. |
 | `ExternalTextureLease<TView> Acquire<Slot>ExternalViewLease()` | Takes a persistent lease on the external view. |
 | `void Dispose()` / `void WaitForDisposal()` | Releases the registration and waits for it to complete. |
+
+### Generated HLSL
+
+`IComputeShaderDescriptor<T>.HlslSource` returns the HLSL the generator wrote for a shader type. The shipped path compiles it as `cs_6_0` through DXC, but the text is plain HLSL and can be taken out and compiled elsewhere, for a Direct3D 11 device of your own among others.
+
+It is written for shader model 6. An older profile takes it only where the shader stays inside what that profile offers, so FXC compiles many of these shaders but not all: a group barrier reached under the range check the entry point applies, a typed UAV store that does not write every component, and intrinsics added after shader model 5 are each rejected there. None of that is a property of the text's bindings, which the rest of this section describes.
+
+The text describes its own bindings. Whatever a caller has to bind appears in the text: the entry point, the constant buffer with every field it holds, and every resource with its register. Nothing is left to be recovered from the generator, so a compiler's own reflection over the text gives the complete binding table.
+
+| What | Where it is stated |
+|---|---|
+| Entry point | The function carrying the `[numthreads(...)]` attribute. It is named `Execute`. |
+| Thread group size | The three constants the `[numthreads(...)]` attribute reads, defined at the top of the text. |
+| Constant buffer | A `cbuffer` declaration with its own register. Its layout is the standard HLSL packing of the fields it declares. |
+| Resources | Each declares its own register. A sampler that omits the index resolves to `s0`. |
+
+The shapes themselves are not promised. Which fields the constant buffer opens with, and the order resources take their registers, are free to change between versions; a release that changes them says so in its notes. What does not change is that the text states them, so a caller that reads the bindings out of the text it compiles stays correct across versions. A caller that hardcodes an offset measured from one version does not.
+
+The companion Direct2D package reaches the same end by a different route, so do not carry this shape over to it. Its pixel shader text names `d2d1effecthelpers.hlsli` in an `#include` and builds the entry point out of that header's macros, which is also what gathers the captured values into the constant buffer Direct2D binds. A caller compiling that text needs the header, which the Windows SDK ships. The captured values themselves are still declared in the text.
 
 ### Runtime
 
