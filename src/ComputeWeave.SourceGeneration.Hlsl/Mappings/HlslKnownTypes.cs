@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq;
 using ComputeWeave.SourceGeneration.Extensions;
+using ComputeWeave.SourceGeneration.Helpers;
 using Microsoft.CodeAnalysis;
 
 #pragma warning disable IDE0055, RS1024
@@ -325,12 +327,18 @@ internal static partial class HlslKnownTypes
     /// Gets the sequence of unique custom types from a collection of discovered types.
     /// </summary>
     /// <param name="discoveredTypes">The input collection of discovered types.</param>
+    /// <param name="memberMethods">The instance methods and constructors declared in the custom types.</param>
     /// <param name="invalidTypes">The collection of discovered invalid types, if any.</param>
-    /// <returns>The list of unique custom types.</returns>
-    public static IEnumerable<INamedTypeSymbol> GetCustomTypes(IEnumerable<INamedTypeSymbol> discoveredTypes, out IReadOnlyCollection<INamedTypeSymbol> invalidTypes)
+    /// <param name="forwardDeclarations">The member method prototypes naming a custom type ahead of its declaration, with that type.</param>
+    /// <returns>The list of unique custom types, in a valid HLSL declaration order.</returns>
+    public static ImmutableArray<INamedTypeSymbol> GetCustomTypes(
+        IEnumerable<INamedTypeSymbol> discoveredTypes,
+        IEnumerable<IMethodSymbol> memberMethods,
+        out IReadOnlyCollection<INamedTypeSymbol> invalidTypes,
+        out ImmutableArray<(IMethodSymbol Prototype, INamedTypeSymbol Type)> forwardDeclarations)
     {
-        // Local function to recursively gather nested types
-        static void ExploreTypes(INamedTypeSymbol type, HashSet<INamedTypeSymbol> customTypes, HashSet<INamedTypeSymbol> invalidTypes)
+        // Local function to recursively gather nested types. The path holds the types whose fields are being explored.
+        static void ExploreTypes(INamedTypeSymbol type, List<INamedTypeSymbol> path, HashSet<INamedTypeSymbol> customTypes, HashSet<INamedTypeSymbol> invalidTypes)
         {
             // Explicitly prevent bool from being a field in a custom struct
             if (type.SpecialType == SpecialType.System_Boolean)
@@ -358,10 +366,32 @@ internal static partial class HlslKnownTypes
                 return;
             }
 
-            if (!customTypes.Add(type))
+            // A type reached again through its own fields has a layout cycle, which C# reports, and which HLSL
+            // cannot lay out either: the shader compiler runs out of stack on a use of such a type instead of
+            // reporting it. So every type on the cycle is refused as invalid rather than declared, which is
+            // also what keeps the ordering below from ever waiting on a field of one.
+            for (int i = 0; i < path.Count; i++)
+            {
+                if (!SymbolEqualityComparer.Default.Equals(path[i], type))
+                {
+                    continue;
+                }
+
+                for (int j = i; j < path.Count; j++)
+                {
+                    _ = customTypes.Remove(path[j]);
+                    _ = invalidTypes.Add(path[j]);
+                }
+
+                return;
+            }
+
+            if (invalidTypes.Contains(type) || !customTypes.Add(type))
             {
                 return;
             }
+
+            path.Add(type);
 
             foreach (IFieldSymbol field in type.GetMembers().OfType<IFieldSymbol>())
             {
@@ -370,10 +400,13 @@ internal static partial class HlslKnownTypes
                     continue;
                 }
 
-                ExploreTypes((INamedTypeSymbol)field.Type, customTypes, invalidTypes);
+                ExploreTypes((INamedTypeSymbol)field.Type, path, customTypes, invalidTypes);
             }
+
+            path.RemoveAt(path.Count - 1);
         }
 
+        List<INamedTypeSymbol> path = [];
         HashSet<INamedTypeSymbol> customTypes = new(SymbolEqualityComparer.Default);
         HashSet<INamedTypeSymbol> invalidTypes2 = new(SymbolEqualityComparer.Default);
 
@@ -389,34 +422,73 @@ internal static partial class HlslKnownTypes
                 continue;
             }
 
-            ExploreTypes(type, customTypes, invalidTypes2);
+            ExploreTypes(type, path, customTypes, invalidTypes2);
         }
 
         invalidTypes = invalidTypes2;
 
-        return OrderByDependency(customTypes, invalidTypes2);
+        return OrderByDependency(customTypes, memberMethods, out forwardDeclarations);
     }
 
     /// <summary>
     /// Orders the input sequence of types so that they can be declared in HLSL successfully.
     /// </summary>
     /// <param name="types">The input collection of types to declare.</param>
-    /// <param name="invalidTypes">The collection of discovered invalid types, if any.</param>
+    /// <param name="memberMethods">The instance methods and constructors declared in the types.</param>
+    /// <param name="forwardDeclarations">The member method prototypes naming a type ahead of its declaration, with that type.</param>
     /// <returns>The same list as input, but in a valid HLSL declaration order.</returns>
-    private static IEnumerable<INamedTypeSymbol> OrderByDependency(IEnumerable<INamedTypeSymbol> types, IReadOnlyCollection<INamedTypeSymbol> invalidTypes)
+    private static ImmutableArray<INamedTypeSymbol> OrderByDependency(
+        HashSet<INamedTypeSymbol> types,
+        IEnumerable<IMethodSymbol> memberMethods,
+        out ImmutableArray<(IMethodSymbol Prototype, INamedTypeSymbol Type)> forwardDeclarations)
     {
-        Queue<(INamedTypeSymbol Type, HashSet<INamedTypeSymbol> Fields)> queue = [];
+        Dictionary<INamedTypeSymbol, List<(IMethodSymbol Prototype, INamedTypeSymbol Type)>> signatures = new(SymbolEqualityComparer.Default);
+
+        // A declaration names the types of its fields and of the member method prototypes it holds, and HLSL
+        // needs each of them declared ahead of it. A field needs its type complete, so a field cannot go ahead
+        // of its type, while a prototype only needs its types declared, which a forward declaration of the
+        // type gives. A cycle through fields is refused before the types get here, so the only cycles a
+        // declaration order cannot resolve run through prototypes, and those are the types written ahead of
+        // their declaration.
+        foreach (IMethodSymbol method in memberMethods)
+        {
+            if (!signatures.TryGetValue(method.ContainingType, out List<(IMethodSymbol Prototype, INamedTypeSymbol Type)>? named))
+            {
+                signatures[method.ContainingType] = named = [];
+            }
+
+            // A constructor is written as a stub returning its own type, and a type is declared by the time
+            // its own prototypes are read, so only the types other than the declaring one are named
+            foreach (IParameterSymbol parameter in method.Parameters)
+            {
+                if (parameter.Type is INamedTypeSymbol parameterType &&
+                    types.Contains(parameterType) &&
+                    !SymbolEqualityComparer.Default.Equals(parameterType, method.ContainingType))
+                {
+                    named.Add((method, parameterType));
+                }
+            }
+
+            if (method.ReturnType is INamedTypeSymbol returnType &&
+                types.Contains(returnType) &&
+                !SymbolEqualityComparer.Default.Equals(returnType, method.ContainingType))
+            {
+                named.Add((method, returnType));
+            }
+        }
+
+        Queue<(INamedTypeSymbol Type, HashSet<INamedTypeSymbol> Fields, HashSet<INamedTypeSymbol> Prototypes)> queue = [];
 
         // Build a mapping of type dependencies for all the captured types. A type depends on another
-        // when the latter is a field in the first type. HLSL requires custom types to be declared in
-        // order of usage, so we need to ensure that types are declared in an order that guarantees
-        // that no type will be referenced before being defined. To do so, we can create a mapping of
-        // types and their dependencies, and iteratively remove items from the map when they have no
-        // dependencies left. When one type is processed and removed, it is also removed from the list
-        // of dependencies of all other remaining types in the map, until there is none left.
+        // when the latter is a field in the first type, or is named by a member method prototype of it.
+        // HLSL requires custom types to be declared in order of usage, so we need to ensure that types
+        // are declared in an order that guarantees that no type will be referenced before being defined.
+        // To do so, we can create a mapping of types and their dependencies, and iteratively remove
+        // items from the map when they have no dependencies left. When one type is processed and removed,
+        // it is also removed from the list of dependencies of all other remaining types in the map.
         foreach (INamedTypeSymbol type in types)
         {
-            HashSet<INamedTypeSymbol> dependencies = new(SymbolEqualityComparer.Default);
+            HashSet<INamedTypeSymbol> fields = new(SymbolEqualityComparer.Default);
 
             // Only add other custom types as dependencies, and ignore HLSL types
             foreach (IFieldSymbol field in type.GetMembers().OfType<IFieldSymbol>())
@@ -428,36 +500,103 @@ internal static partial class HlslKnownTypes
 
                 INamedTypeSymbol fieldType = (INamedTypeSymbol)field.Type;
 
-                if (!KnownHlslTypeMetadataNames.ContainsKey(fieldType.GetFullyQualifiedMetadataName()) &&
-                    !invalidTypes.Contains(fieldType))
+                if (types.Contains(fieldType))
                 {
-                    _ = dependencies.Add(fieldType);
+                    _ = fields.Add(fieldType);
                 }
             }
 
-            queue.Enqueue((type, dependencies));
+            HashSet<INamedTypeSymbol> prototypes = new(SymbolEqualityComparer.Default);
+
+            if (signatures.TryGetValue(type, out List<(IMethodSymbol Prototype, INamedTypeSymbol Type)>? named))
+            {
+                foreach ((IMethodSymbol Prototype, INamedTypeSymbol Type) signature in named)
+                {
+                    _ = prototypes.Add(signature.Type);
+                }
+            }
+
+            queue.Enqueue((type, fields, prototypes));
         }
+
+        using ImmutableArrayBuilder<INamedTypeSymbol> ordered = new();
+
+        List<(IMethodSymbol Prototype, INamedTypeSymbol Type)> forward = [];
+
+        int deferred = 0;
 
         while (queue.Count > 0)
         {
-            (INamedTypeSymbol Type, HashSet<INamedTypeSymbol> Fields) entry = queue.Dequeue();
+            (INamedTypeSymbol Type, HashSet<INamedTypeSymbol> Fields, HashSet<INamedTypeSymbol> Prototypes) entry = queue.Dequeue();
 
-            // No dependencies left, we can declare this type
-            if (entry.Fields.Count == 0)
+            if (entry.Fields.Count > 0 || entry.Prototypes.Count > 0)
             {
-                // Remove the current type from dependencies of others
-                foreach ((INamedTypeSymbol Type, HashSet<INamedTypeSymbol> Fields) pair in queue)
+                // Once more entries have been deferred in a row than the queue still holds behind this one, the
+                // queue has gone a full round with nothing declared, so every remaining type waits on another.
+                // The first type in line whose fields are declared is written next, and the types its prototypes
+                // still name are forward declared ahead of it. A type whose fields are not declared yet keeps
+                // its turn for after them, which a field needing its type complete is what asks for, and the
+                // fields of the types here form no cycle, so one round of the line always comes to such a type.
+                if (deferred <= queue.Count)
                 {
-                    _ = pair.Fields.Remove(entry.Type);
+                    queue.Enqueue(entry);
+
+                    deferred++;
+
+                    continue;
                 }
 
-                yield return entry.Type;
+                for (int i = queue.Count; i > 0 && entry.Fields.Count > 0; i--)
+                {
+                    queue.Enqueue(entry);
+
+                    entry = queue.Dequeue();
+                }
+
+                // The prototypes of this type still naming an undeclared type are the ones read ahead of it
+                if (signatures.TryGetValue(entry.Type, out List<(IMethodSymbol Prototype, INamedTypeSymbol Type)>? named))
+                {
+                    foreach ((IMethodSymbol Prototype, INamedTypeSymbol Type) signature in named)
+                    {
+                        if (entry.Prototypes.Contains(signature.Type))
+                        {
+                            forward.Add(signature);
+                        }
+                    }
+                }
             }
-            else
+
+            // Remove the current type from dependencies of others
+            foreach ((INamedTypeSymbol Type, HashSet<INamedTypeSymbol> Fields, HashSet<INamedTypeSymbol> Prototypes) pair in queue)
             {
-                queue.Enqueue(entry);
+                _ = pair.Fields.Remove(entry.Type);
+                _ = pair.Prototypes.Remove(entry.Type);
+            }
+
+            ordered.Add(entry.Type);
+
+            deferred = 0;
+        }
+
+        ImmutableArray<INamedTypeSymbol> orderedTypes = ordered.ToImmutable();
+
+        using ImmutableArrayBuilder<(IMethodSymbol Prototype, INamedTypeSymbol Type)> orderedForward = new();
+
+        // The forward declarations are handed out in the order the declarations they stand for are
+        foreach (INamedTypeSymbol type in orderedTypes)
+        {
+            foreach ((IMethodSymbol Prototype, INamedTypeSymbol Type) signature in forward)
+            {
+                if (SymbolEqualityComparer.Default.Equals(signature.Type, type))
+                {
+                    orderedForward.Add(signature);
+                }
             }
         }
+
+        forwardDeclarations = orderedForward.ToImmutable();
+
+        return orderedTypes;
     }
 
     /// <summary>

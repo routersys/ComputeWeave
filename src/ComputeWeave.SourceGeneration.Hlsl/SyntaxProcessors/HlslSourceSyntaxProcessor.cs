@@ -12,7 +12,7 @@ internal static class HlslSourceSyntaxProcessor
     /// Writes the top declarations in each generated HLSL shader:
     /// <list type="bullet">
     ///   <item>Defined constants.</item>
-    ///   <item>Type forward declarations (optional).</item>
+    ///   <item>Type forward declarations (only the ones the declaration order needs).</item>
     ///   <item>Method forward declarations.</item>
     ///   <item>Static fields.</item>
     ///   <item>Type declarations.</item>
@@ -22,15 +22,15 @@ internal static class HlslSourceSyntaxProcessor
     /// <param name="definedConstants">The sequence of defined constants for the shader.</param>
     /// <param name="staticFields">The sequence of static fields referenced by the shader.</param>
     /// <param name="processedMethods">The sequence of processed methods used by the shader.</param>
-    /// <param name="typeDeclarations">The collection of declarations of all custom types.</param>
-    /// <param name="includeTypeForwardDeclarations">Whether to include type forward declarations (if supported).</param>
+    /// <param name="typeDeclarations">The collection of declarations of all custom types, in declaration order.</param>
+    /// <param name="typeForwardDeclarations">The names of the custom types to forward declare ahead of every declaration.</param>
     public static void WriteTopDeclarations(
         IndentedTextWriter writer,
         ImmutableArray<HlslConstant> definedConstants,
         ImmutableArray<HlslStaticField> staticFields,
         ImmutableArray<HlslMethod> processedMethods,
         ImmutableArray<HlslUserType> typeDeclarations,
-        bool includeTypeForwardDeclarations)
+        ImmutableArray<string> typeForwardDeclarations)
     {
         // Define declarations
         foreach (HlslConstant constant in definedConstants)
@@ -40,16 +40,15 @@ internal static class HlslSourceSyntaxProcessor
 
         writer.WriteLine(skipIfPresent: true);
 
-        // Forward declarations of discovered types, only if supported
-        if (includeTypeForwardDeclarations)
+        // Forward declarations of the discovered types a member method prototype names ahead of their
+        // declaration. The FXC compiler has no type forward declaration, so a generator targeting it passes
+        // none here and answers for such a type on its own, while the declaration order settles the rest.
+        foreach (string userType in typeForwardDeclarations)
         {
-            foreach (HlslUserType userType in typeDeclarations)
-            {
-                writer.WriteLine($"struct {userType.Name};");
-            }
-
-            writer.WriteLine(skipIfPresent: true);
+            writer.WriteLine($"struct {userType};");
         }
+
+        writer.WriteLine(skipIfPresent: true);
 
         // Declared types (these have to be declared early on in the shader so that even if
         // forward declarations for types are not supported, like is the case for D2D shaders

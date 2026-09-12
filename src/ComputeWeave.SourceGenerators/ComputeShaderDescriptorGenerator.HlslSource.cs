@@ -145,7 +145,25 @@ partial class ComputeShaderDescriptorGenerator
                 instanceMethods,
                 constructors,
                 out ImmutableArray<HlslUserType> typeDeclarations,
+                out ImmutableArray<(IMethodSymbol Prototype, INamedTypeSymbol Type)> forwardDeclarations,
                 out ImmutableArray<string> typeMethodDeclarations);
+
+            token.ThrowIfCancellationRequested();
+
+            using ImmutableArrayBuilder<string> typeForwardDeclarations = new();
+
+            HashSet<INamedTypeSymbol> forwardDeclaredTypes = new(SymbolEqualityComparer.Default);
+
+            // DXC accepts a type forward declaration, so the types the declaration order cannot put ahead of
+            // the prototypes naming them are forward declared, once each. Nothing else is: FXC, which a user
+            // compiles an extracted HlslSource with for Direct3D 11, rejects the declaration.
+            foreach ((IMethodSymbol Prototype, INamedTypeSymbol Type) forwardDeclaration in forwardDeclarations)
+            {
+                if (forwardDeclaredTypes.Add(forwardDeclaration.Type))
+                {
+                    typeForwardDeclarations.Add(forwardDeclaration.Type.GetFullyQualifiedMetadataName().ToHlslIdentifierName());
+                }
+            }
 
             token.ThrowIfCancellationRequested();
 
@@ -173,6 +191,7 @@ partial class ComputeShaderDescriptorGenerator
                 sharedBuffers,
                 processedMethods,
                 typeDeclarations,
+                typeForwardDeclarations.ToImmutable(),
                 typeMethodDeclarations,
                 isComputeShader,
                 implicitTextureType,
@@ -571,6 +590,7 @@ partial class ComputeShaderDescriptorGenerator
         /// <param name="sharedBuffers">The sequence of shared buffers declared by the shader.</param>
         /// <param name="processedMethods"><inheritdoc cref="HlslSourceSyntaxProcessor.WriteTopDeclarations" path="/param[@name='processedMethods']/node()"/></param>
         /// <param name="typeDeclarations"><inheritdoc cref="HlslSourceSyntaxProcessor.WriteTopDeclarations" path="/param[@name='typeDeclarations']/node()"/></param>
+        /// <param name="typeForwardDeclarations"><inheritdoc cref="HlslSourceSyntaxProcessor.WriteTopDeclarations" path="/param[@name='typeForwardDeclarations']/node()"/></param>
         /// <param name="typeMethodDeclarations"><inheritdoc cref="HlslSourceSyntaxProcessor.WriteMethodDeclarations" path="/param[@name='typeMethodDeclarations']/node()"/></param>
         /// <param name="isComputeShader">Whether or not the current shader type is a compute shader.</param>
         /// <param name="implicitTextureType">The type of the implicit target texture, if present.</param>
@@ -588,6 +608,7 @@ partial class ComputeShaderDescriptorGenerator
             ImmutableArray<HlslSharedBuffer> sharedBuffers,
             ImmutableArray<HlslMethod> processedMethods,
             ImmutableArray<HlslUserType> typeDeclarations,
+            ImmutableArray<string> typeForwardDeclarations,
             ImmutableArray<string> typeMethodDeclarations,
             bool isComputeShader,
             string? implicitTextureType,
@@ -607,7 +628,7 @@ partial class ComputeShaderDescriptorGenerator
                 staticFields,
                 processedMethods,
                 typeDeclarations,
-                includeTypeForwardDeclarations: true);
+                typeForwardDeclarations);
 
             writer.WriteLine("cbuffer _ : register(b0)");
 

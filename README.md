@@ -297,7 +297,7 @@ ReadOnlyMemory<byte> bytecode = D2D1PixelShader.LoadBytecode<DifferenceEffect>()
 ReadOnlyMemory<byte> buffer = D2D1PixelShader.GetConstantBuffer(new DifferenceEffect(1));
 ```
 
-The declarations are checked by analyzers that report 99 diagnostics with the `CMPWD2D` prefix. Shaders are compiled to DXBC with FXC, which is what Direct2D accepts; `d3dcompiler_47.dll` ships with Windows, so the package bundles no compiler of its own.
+The declarations are checked by analyzers that report 100 diagnostics with the `CMPWD2D` prefix. Shaders are compiled to DXBC with FXC, which is what Direct2D accepts; `d3dcompiler_47.dll` ships with Windows, so the package bundles no compiler of its own.
 
 ---
 
@@ -338,7 +338,7 @@ The declarations are checked by analyzers that report 99 diagnostics with the `C
 
 `IComputeShaderDescriptor<T>.HlslSource` returns the HLSL the generator wrote for a shader type. The shipped path compiles it as `cs_6_0` through DXC, but the text is plain HLSL and can be taken out and compiled elsewhere, for a Direct3D 11 device of your own among others.
 
-It is written for shader model 6. An older profile takes it only where the shader stays inside what that profile offers, so FXC compiles many of these shaders but not all: a group barrier reached under the range check the entry point applies, a typed UAV store that does not write every component, and intrinsics added after shader model 5 are each rejected there. None of that is a property of the text's bindings, which the rest of this section describes.
+It is written for shader model 6. An older profile takes it only where the shader stays inside what that profile offers, so FXC compiles many of these shaders but not all: a group barrier reached under the range check the entry point applies, a typed UAV store that does not write every component, and intrinsics added after shader model 5 are each rejected there. One more shape stays out of its reach: custom types whose member method signatures name each other. No declaration order resolves that, so the text keeps a type forward declaration for it, which DXC accepts and FXC does not; every other custom type is declared ahead of the declarations naming it, with no forward declaration. None of that is a property of the text's bindings, which the rest of this section describes.
 
 The text describes its own bindings. Whatever a caller has to bind appears in the text: the entry point, the constant buffer with every field it holds, and every resource with its register. Nothing is left to be recovered from the generator, so a compiler's own reflection over the text gives the complete binding table.
 

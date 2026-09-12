@@ -80,6 +80,44 @@ public class Test_D2DPixelShaderDescriptorGenerator_DiagnosticLocations
         }
         """;
 
+    private const string PrototypeCycleSource = """
+        using ComputeWeave;
+        using ComputeWeave.D2D1;
+        using float4 = global::ComputeWeave.Float4;
+
+        namespace MyNamespace;
+
+        internal struct First
+        {
+            public float x;
+
+            public float Combine(Second other) => x + other.y;
+        }
+
+        internal struct Second
+        {
+            public float y;
+
+            public float Combine(First other) => y + other.x;
+        }
+
+        [D2DInputCount(0)]
+        [D2DShaderProfile(D2D1ShaderProfile.PixelShader50)]
+        [D2DGeneratedPixelShaderDescriptor]
+        internal readonly partial struct MyShader : ID2D1PixelShader
+        {
+            private readonly float time;
+
+            public float4 Execute()
+            {
+                First first = default;
+                Second second = default;
+
+                return first.Combine(second) + second.Combine(first) + this.time;
+            }
+        }
+        """;
+
     [TestMethod]
     public void AShaderTheCompilerRefusesIsReportedAtTheShader()
     {
@@ -96,6 +134,16 @@ public class Test_D2DPixelShaderDescriptorGenerator_DiagnosticLocations
     public void UnnecessaryD2DRequiresDoublePrecisionSupportAttributeIsReportedAtTheAttribute()
     {
         AssertReportedAt(UnnecessaryAttributeSource, "CMPWD2D0081", "[D2DRequiresDoublePrecisionSupport]");
+    }
+
+    /// <summary>
+    /// The member reported is the one read before the type its signature names is declared, which is the
+    /// place to change: the first type in line is declared first, so its prototype is the one naming the other.
+    /// </summary>
+    [TestMethod]
+    public void ACustomTypeMemberNamingATypeBeforeItsDeclarationIsReportedAtTheMember()
+    {
+        AssertReportedAt(PrototypeCycleSource, "CMPWD2D0100", "public float Combine(Second other) => x + other.y;");
     }
 
     /// <summary>

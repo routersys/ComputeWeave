@@ -1214,4 +1214,186 @@ public class Test_D2DPixelShaderDescriptorGenerator_Diagnostics
 
         CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnostics(source, "CMPWD2D0099");
     }
+
+    /// <summary>
+    /// A member method prototype naming a custom type discovered after the one holding it. HLSL needs the type
+    /// declared ahead of the prototype, and FXC has no forward declaration to bridge the two, so the declaration
+    /// order has to put it first. The profile turns shader compilation on, so FXC is what pins the order here.
+    /// </summary>
+    [TestMethod]
+    public void ACustomTypeAPrototypeNamesIsDeclaredAheadOfIt()
+    {
+        const string source = """
+            using ComputeWeave;
+            using ComputeWeave.D2D1;
+            using float4 = global::ComputeWeave.Float4;
+
+            namespace MyNamespace;
+
+            internal struct First
+            {
+                public float x;
+
+                public float Read(Second other) => x + other.y;
+            }
+
+            internal struct Second
+            {
+                public float y;
+            }
+
+            [D2DInputCount(0)]
+            [D2DShaderProfile(D2D1ShaderProfile.PixelShader50)]
+            [D2DGeneratedPixelShaderDescriptor]
+            internal readonly partial struct MyShader : ID2D1PixelShader
+            {
+                private readonly float time;
+
+                public float4 Execute()
+                {
+                    First first = default;
+                    Second second = default;
+
+                    return first.Read(second) + this.time;
+                }
+            }
+            """;
+
+        CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnostics(source);
+    }
+
+    /// <summary>
+    /// A custom type whose members name the type itself. The type is declared by the time its own prototypes are
+    /// read, so nothing is named ahead of its declaration, and FXC takes the declaration as it stands.
+    /// </summary>
+    [TestMethod]
+    public void ACustomTypeNamedByItsOwnPrototypesIsAccepted()
+    {
+        const string source = """
+            using ComputeWeave;
+            using ComputeWeave.D2D1;
+            using float4 = global::ComputeWeave.Float4;
+
+            namespace MyNamespace;
+
+            internal struct First
+            {
+                public float x;
+
+                public float Combine(First other) => x + other.x;
+
+                public First Make() => default;
+            }
+
+            [D2DInputCount(0)]
+            [D2DShaderProfile(D2D1ShaderProfile.PixelShader50)]
+            [D2DGeneratedPixelShaderDescriptor]
+            internal readonly partial struct MyShader : ID2D1PixelShader
+            {
+                private readonly float time;
+
+                public float4 Execute()
+                {
+                    First first = default;
+                    First other = first.Make();
+
+                    return first.Combine(other) + this.time;
+                }
+            }
+            """;
+
+        CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnostics(source);
+    }
+
+    /// <summary>
+    /// Two custom types whose member method prototypes name each other. No declaration order resolves that, and
+    /// FXC has no type forward declaration, so the type named ahead of its declaration is refused rather than
+    /// written into HLSL the compiler rejects. The compute generator forward declares it instead, DXC accepting that.
+    /// </summary>
+    [TestMethod]
+    public void ACustomTypeNamedAcrossACycleIsDiagnosed()
+    {
+        const string source = """
+            using ComputeWeave;
+            using ComputeWeave.D2D1;
+            using float4 = global::ComputeWeave.Float4;
+
+            namespace MyNamespace;
+
+            internal struct First
+            {
+                public float x;
+
+                public float Combine(Second other) => x + other.y;
+            }
+
+            internal struct Second
+            {
+                public float y;
+
+                public float Combine(First other) => y + other.x;
+            }
+
+            [D2DInputCount(0)]
+            [D2DShaderProfile(D2D1ShaderProfile.PixelShader50)]
+            [D2DGeneratedPixelShaderDescriptor]
+            internal readonly partial struct MyShader : ID2D1PixelShader
+            {
+                private readonly float time;
+
+                public float4 Execute()
+                {
+                    First first = default;
+                    Second second = default;
+
+                    return first.Combine(second) + second.Combine(first) + this.time;
+                }
+            }
+            """;
+
+        CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnostics(source, "CMPWD2D0100");
+    }
+
+    /// <summary>
+    /// Two custom types holding a field of each other, which C# reports as a layout cycle. HLSL cannot lay such
+    /// a type out either, so both are refused as invalid types, the way the compute generator refuses them.
+    /// </summary>
+    [TestMethod]
+    public void ACustomTypeInALayoutCycleIsRefused()
+    {
+        const string source = """
+            using ComputeWeave;
+            using ComputeWeave.D2D1;
+            using float4 = global::ComputeWeave.Float4;
+
+            namespace MyNamespace;
+
+            internal struct First
+            {
+                public Second second;
+            }
+
+            internal struct Second
+            {
+                public First first;
+            }
+
+            [D2DInputCount(0)]
+            [D2DShaderProfile(D2D1ShaderProfile.PixelShader50)]
+            [D2DGeneratedPixelShaderDescriptor]
+            internal readonly partial struct MyShader : ID2D1PixelShader
+            {
+                private readonly float time;
+
+                public float4 Execute()
+                {
+                    First first = default;
+
+                    return this.time;
+                }
+            }
+            """;
+
+        CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnostics(source, "CMPWD2D0041");
+    }
 }

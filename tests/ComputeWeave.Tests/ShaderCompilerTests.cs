@@ -943,9 +943,6 @@ namespace ComputeWeave.Tests
                 #define __GroupSize__get_Y 1
                 #define __GroupSize__get_Z 1
 
-                struct ComputeWeave_Tests_ShaderCompilerTests_StructWithInstanceMethod1;
-                struct ComputeWeave_Tests_ShaderCompilerTests_StructWithInstanceMethod2;
-
                 struct ComputeWeave_Tests_ShaderCompilerTests_StructWithInstanceMethod1
                 {
                     int InstanceMethod();
@@ -1036,7 +1033,6 @@ namespace ComputeWeave.Tests
                 #define __ComputeWeave_Tests_ShaderCompilerTests_ExternalContainerClass__Factor 8
                 #define __ComputeWeave_Tests_ShaderCompilerTests_ShaderWithAllSupportedMembers__PI 3.14
 
-                struct ComputeWeave_Tests_ShaderCompilerTests_StructType1;
                 struct ComputeWeave_Tests_ShaderCompilerTests_StructType2;
 
                 struct ComputeWeave_Tests_ShaderCompilerTests_StructType1
@@ -1252,8 +1248,6 @@ namespace ComputeWeave.Tests
                 #define __GroupSize__get_X 64
                 #define __GroupSize__get_Y 1
                 #define __GroupSize__get_Z 1
-
-                struct ComputeWeave_Tests_ShaderCompilerTests_ShaderUsingThisExpressions_Data;
 
                 struct ComputeWeave_Tests_ShaderCompilerTests_ShaderUsingThisExpressions_Data
                 {
