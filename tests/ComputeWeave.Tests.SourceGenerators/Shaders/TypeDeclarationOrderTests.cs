@@ -142,6 +142,65 @@ public class TypeDeclarationOrderTests
         """;
 
     /// <summary>
+    /// Two types holding a field of each other, one of them captured by the shader rather than used in its body.
+    /// </summary>
+    private const string CapturedFieldCycleSource = """
+        using ComputeWeave;
+
+        namespace Shaders;
+
+        internal struct First
+        {
+            public Second second;
+        }
+
+        internal struct Second
+        {
+            public First first;
+        }
+
+        [ThreadGroupSize(DefaultThreadGroupSizes.X)]
+        [GeneratedComputeShaderDescriptor]
+        internal readonly partial struct Shader : IComputeShader
+        {
+            private readonly ReadWriteBuffer<float> buffer;
+            private readonly First first;
+
+            public void Execute()
+            {
+                this.buffer[0] = 1;
+            }
+        }
+        """;
+
+    /// <summary>
+    /// A type holding a field of its own type, captured by the shader.
+    /// </summary>
+    private const string CapturedSelfFieldSource = """
+        using ComputeWeave;
+
+        namespace Shaders;
+
+        internal struct First
+        {
+            public First first;
+        }
+
+        [ThreadGroupSize(DefaultThreadGroupSizes.X)]
+        [GeneratedComputeShaderDescriptor]
+        internal readonly partial struct Shader : IComputeShader
+        {
+            private readonly ReadWriteBuffer<float> buffer;
+            private readonly First first;
+
+            public void Execute()
+            {
+                this.buffer[0] = 1;
+            }
+        }
+        """;
+
+    /// <summary>
     /// A type whose members name the type itself, as a parameter and as a return type.
     /// </summary>
     private const string SelfPrototypeSource = """
@@ -499,6 +558,8 @@ public class TypeDeclarationOrderTests
     /// <remarks>
     /// The timeout pins the run ending. The ordering used to wait forever for a field of such a type to be
     /// declared, and a generator that spins reports nothing, so no assertion on its output stands in for it.
+    /// A type the shader captures reaches the walk of the constant buffer first, which used to follow the
+    /// fields around the cycle until the stack ran out, so the captured rows pin that walk ending as well.
     /// </remarks>
     [TestMethod]
     [Timeout(120000)]
@@ -506,6 +567,8 @@ public class TypeDeclarationOrderTests
     [DataRow(SelfFieldSource, "TypeOrderSelfFieldTests", new[] { "Shaders.First" }, new string[0])]
     [DataRow(OverlappingCyclesSource, "TypeOrderOverlappingCyclesTests", new[] { "Shaders.First", "Shaders.Second" }, new string[0])]
     [DataRow(HolderOfFieldCycleSource, "TypeOrderHolderOfFieldCycleTests", new[] { "Shaders.First", "Shaders.Second" }, new[] { "Shaders_Holder" })]
+    [DataRow(CapturedFieldCycleSource, "TypeOrderCapturedFieldCycleTests", new[] { "Shaders.First", "Shaders.Second" }, new string[0])]
+    [DataRow(CapturedSelfFieldSource, "TypeOrderCapturedSelfFieldTests", new[] { "Shaders.First" }, new string[0])]
     public void ATypeInALayoutCycleIsRefused(string source, string assemblyName, string[] refusedTypes, string[] declaredTypes)
     {
         CSharpCompilation compilation = CompilationHelper.CreateCompilationAllowingErrors(source, assemblyName);

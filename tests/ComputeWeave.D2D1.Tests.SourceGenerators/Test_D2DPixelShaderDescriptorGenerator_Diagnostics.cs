@@ -1263,6 +1263,48 @@ public class Test_D2DPixelShaderDescriptorGenerator_Diagnostics
     }
 
     /// <summary>
+    /// The same two types, one of them captured by the shader. The walk of the constant buffer reaches the cycle
+    /// first, and used to follow it until the stack ran out; the field closing it is skipped, and the type refused.
+    /// </summary>
+    [TestMethod]
+    public void ACustomTypeInALayoutCycleCapturedByTheShaderIsRefused()
+    {
+        const string source = """
+            using ComputeWeave;
+            using ComputeWeave.D2D1;
+            using float4 = global::ComputeWeave.Float4;
+
+            namespace MyNamespace;
+
+            internal struct First
+            {
+                public Second second;
+            }
+
+            internal struct Second
+            {
+                public First first;
+            }
+
+            [D2DInputCount(0)]
+            [D2DShaderProfile(D2D1ShaderProfile.PixelShader50)]
+            [D2DGeneratedPixelShaderDescriptor]
+            internal readonly partial struct MyShader : ID2D1PixelShader
+            {
+                private readonly float time;
+                private readonly First first;
+
+                public float4 Execute()
+                {
+                    return this.time;
+                }
+            }
+            """;
+
+        CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnostics(source, "CMPWD2D0041");
+    }
+
+    /// <summary>
     /// A custom type whose members name the type itself. The type is declared by the time its own prototypes are
     /// read, so nothing is named ahead of its declaration, and FXC takes the declaration as it stands.
     /// </summary>
