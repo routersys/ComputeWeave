@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.RegularExpressions;
@@ -36,15 +37,19 @@ internal static partial class ConstantBufferSyntaxProcessor
         ref int constantBufferSizeInBytes,
         out ImmutableArray<FieldInfo> fields)
     {
-        // Helper method to traverse the type hierarchy and append all valid fields
+        // Helper method to traverse the type hierarchy and append all valid fields. The path holds the types
+        // being traversed, so a field closing a layout cycle (which C# reports) is skipped instead of walked again.
         static void GetInfo(
             Compilation compilation,
             ITypeSymbol currentTypeSymbol,
             ImmutableArray<FieldPathPart> fieldPath,
+            HashSet<ITypeSymbol> path,
             ref int constantBufferSizeInBytes,
             ImmutableArrayBuilder<FieldInfo> fields)
         {
             bool isFirstField = true;
+
+            _ = path.Add(currentTypeSymbol);
 
             foreach (ISymbol memberSymbol in currentTypeSymbol.GetMembers())
             {
@@ -62,6 +67,12 @@ internal static partial class ConstantBufferSyntaxProcessor
 
                 // Try to get the name to use for the field and the accessor
                 if (!TryGetFieldAccessorName(fieldSymbol, out string? fieldName, out string? unspeakableName))
+                {
+                    continue;
+                }
+
+                // Skip fields closing a layout cycle: C# reports it, and the generator refuses the type on its own
+                if (path.Contains(fieldSymbol.Type))
                 {
                     continue;
                 }
@@ -88,9 +99,11 @@ internal static partial class ConstantBufferSyntaxProcessor
                     FieldPathPart fieldPathPart = new FieldPathPart.Nested(fieldName, unspeakableName, nestedTypeName);
 
                     // Custom struct type defined by the user
-                    GetInfo(compilation, fieldSymbol.Type, fieldPath.Add(fieldPathPart), ref constantBufferSizeInBytes, fields);
+                    GetInfo(compilation, fieldSymbol.Type, fieldPath.Add(fieldPathPart), path, ref constantBufferSizeInBytes, fields);
                 }
             }
+
+            _ = path.Remove(currentTypeSymbol);
         }
 
         using ImmutableArrayBuilder<FieldInfo> fieldBuilder = new();
@@ -100,6 +113,7 @@ internal static partial class ConstantBufferSyntaxProcessor
             compilation,
             structDeclarationSymbol,
             [],
+            new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default),
             ref constantBufferSizeInBytes,
             fieldBuilder);
 
@@ -119,9 +133,12 @@ internal static partial class ConstantBufferSyntaxProcessor
             Compilation compilation,
             ITypeSymbol currentTypeSymbol,
             int fieldDepth,
+            HashSet<ITypeSymbol> path,
             ref int constantBufferSizeInBytes)
         {
             bool isFirstField = true;
+
+            _ = path.Add(currentTypeSymbol);
 
             foreach (ISymbol memberSymbol in currentTypeSymbol.GetMembers())
             {
@@ -133,7 +150,8 @@ internal static partial class ConstantBufferSyntaxProcessor
 
                 // Skip the same fields the other method skips, so both compute the same size
                 if (!fieldSymbol.Type.IsAccessibleFromCompilationAssembly(compilation) ||
-                    !TryGetFieldAccessorName(fieldSymbol, out _, out _))
+                    !TryGetFieldAccessorName(fieldSymbol, out _, out _) ||
+                    path.Contains(fieldSymbol.Type))
                 {
                     continue;
                 }
@@ -155,9 +173,11 @@ internal static partial class ConstantBufferSyntaxProcessor
                 }
                 else if (fieldSymbol.Type.IsUnmanagedType)
                 {
-                    GetInfo(compilation, fieldSymbol.Type, fieldDepth + 1, ref constantBufferSizeInBytes);
+                    GetInfo(compilation, fieldSymbol.Type, fieldDepth + 1, path, ref constantBufferSizeInBytes);
                 }
             }
+
+            _ = path.Remove(currentTypeSymbol);
         }
 
         // Traverse all shader fields and simply track the buffer size
@@ -165,6 +185,7 @@ internal static partial class ConstantBufferSyntaxProcessor
             compilation,
             structDeclarationSymbol,
             fieldDepth: 0,
+            new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default),
             ref constantBufferSizeInBytes);
     }
 
