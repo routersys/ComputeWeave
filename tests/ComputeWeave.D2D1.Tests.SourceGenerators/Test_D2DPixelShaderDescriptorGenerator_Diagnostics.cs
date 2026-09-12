@@ -1263,6 +1263,45 @@ public class Test_D2DPixelShaderDescriptorGenerator_Diagnostics
     }
 
     /// <summary>
+    /// A custom type holding a pointer field is refused as an invalid type. The explorer used to cast the field
+    /// type to a named one and end the generator.
+    /// </summary>
+    [TestMethod]
+    public void ACustomTypeWithAPointerFieldIsRefused()
+    {
+        const string source = """
+            using ComputeWeave;
+            using ComputeWeave.D2D1;
+            using float4 = global::ComputeWeave.Float4;
+
+            namespace MyNamespace;
+
+            internal unsafe struct Node
+            {
+                public float value;
+                public Node* next;
+            }
+
+            [D2DInputCount(0)]
+            [D2DShaderProfile(D2D1ShaderProfile.PixelShader50)]
+            [D2DGeneratedPixelShaderDescriptor]
+            internal readonly partial struct MyShader : ID2D1PixelShader
+            {
+                private readonly float time;
+
+                public float4 Execute()
+                {
+                    Node node = default;
+
+                    return node.value + this.time;
+                }
+            }
+            """;
+
+        CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnostics(source, "CMPWD2D0041");
+    }
+
+    /// <summary>
     /// A custom type whose members name the type itself. The type is declared by the time its own prototypes are
     /// read, so nothing is named ahead of its declaration, and FXC takes the declaration as it stands.
     /// </summary>
