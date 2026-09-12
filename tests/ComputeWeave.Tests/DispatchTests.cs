@@ -903,4 +903,129 @@ public partial class DispatchTests
             this.results[4] = GroupIds.X - 1 < 0 ? 1 : 0;
         }
     }
+
+    /// <summary>
+    /// The entry point runs the body once for every thread inside the range, and never for one outside it.
+    /// </summary>
+    /// <remarks>
+    /// The buffer counted into is sized from the thread groups launched rather than from the range, so a
+    /// thread that ran outside the range leaves a mark no bounds check of the resource can swallow, and a slot
+    /// inside the range has to be marked exactly once. The group differs on every axis, so a swapped axis shows.
+    /// </remarks>
+    [CombinatorialTestMethod]
+    [AllDevices]
+    [Data(1, 1, 1)]
+    [Data(5, 6, 5)]
+    [Data(4, 7, 5)]
+    [Data(4, 6, 6)]
+    [Data(9, 13, 11)]
+    public void Verify_TheEntryPointRunsTheBodyOnceInsideTheRangeAndNeverOutsideIt(Device device, int x, int y, int z)
+    {
+        (int X, int Y, int Z) launched = (ThreadsLaunched(x, 4), ThreadsLaunched(y, 6), ThreadsLaunched(z, 5));
+        int slots = launched.X * launched.Y * launched.Z;
+
+        // Every row launches threads outside the range, or the entry point would have nothing to keep out
+        Assert.IsTrue(slots > x * y * z);
+
+        using ReadWriteBuffer<int> counts = device.Get().AllocateReadWriteBuffer<int>(slots, AllocationMode.Clear);
+
+        device.Get().For(x, y, z, new EntryRangeCountingShader(counts, launched.X, launched.Y));
+
+        AssertCountedOnceInside(counts.ToArray(), (x, y, z), launched);
+    }
+
+    /// <summary>
+    /// The pixel entry point runs the body once per pixel, and never for a thread outside the texture.
+    /// </summary>
+    /// <remarks>
+    /// The pixel entry point has a check of its own with two terms, and the depth of the dispatch is fixed
+    /// at one elsewhere, so this counts over a texture whose sides are no multiple of the thread group.
+    /// </remarks>
+    [CombinatorialTestMethod]
+    [AllDevices]
+    [Data(1, 1)]
+    [Data(17, 4)]
+    [Data(16, 5)]
+    [Data(37, 11)]
+    public void Verify_ThePixelEntryPointRunsTheBodyOncePerPixelAndNeverOutsideTheTexture(Device device, int width, int height)
+    {
+        (int X, int Y, int Z) launched = (ThreadsLaunched(width, 16), ThreadsLaunched(height, 4), 1);
+        int slots = launched.X * launched.Y;
+
+        Assert.IsTrue(slots > width * height);
+
+        using ReadWriteTexture2D<Rgba32, float4> texture = device.Get().AllocateReadWriteTexture2D<Rgba32, float4>(width, height);
+        using ReadWriteBuffer<int> counts = device.Get().AllocateReadWriteBuffer<int>(slots, AllocationMode.Clear);
+
+        device.Get().ForEach(texture, new EntryRangeCountingPixelShader(counts, launched.X));
+
+        AssertCountedOnceInside(counts.ToArray(), (width, height, 1), launched);
+    }
+
+    /// <summary>
+    /// Gets the threads a dispatch over a range launches on one axis, which is the range rounded up to whole
+    /// thread groups.
+    /// </summary>
+    private static int ThreadsLaunched(int range, int groupSize)
+    {
+        return (range + groupSize - 1) / groupSize * groupSize;
+    }
+
+    /// <summary>
+    /// Asserts that every slot inside the range holds one and every slot outside it holds zero.
+    /// </summary>
+    private static void AssertCountedOnceInside(int[] counts, (int X, int Y, int Z) range, (int X, int Y, int Z) launched)
+    {
+        Assert.AreEqual(launched.X * launched.Y * launched.Z, counts.Length);
+
+        for (int z = 0; z < launched.Z; z++)
+        {
+            for (int y = 0; y < launched.Y; y++)
+            {
+                for (int x = 0; x < launched.X; x++)
+                {
+                    bool inside = x < range.X && y < range.Y && z < range.Z;
+
+                    Assert.AreEqual(inside ? 1 : 0, counts[(((z * launched.Y) + y) * launched.X) + x], $"({x}, {y}, {z})");
+                }
+            }
+        }
+    }
+
+    [AutoConstructor]
+    [ThreadGroupSize(4, 6, 5)]
+    [GeneratedComputeShaderDescriptor]
+    internal readonly partial struct EntryRangeCountingShader : IComputeShader
+    {
+        public readonly ReadWriteBuffer<int> counts;
+        public readonly int launchedWidth;
+        public readonly int launchedHeight;
+
+        /// <inheritdoc/>
+        public void Execute()
+        {
+            int slot = (((ThreadIds.Z * this.launchedHeight) + ThreadIds.Y) * this.launchedWidth) + ThreadIds.X;
+
+            Hlsl.InterlockedAdd(ref this.counts[slot], 1);
+        }
+    }
+
+    [AutoConstructor]
+    [ThreadGroupSize(16, 4, 1)]
+    [GeneratedComputeShaderDescriptor]
+    internal readonly partial struct EntryRangeCountingPixelShader : IComputeShader<float4>
+    {
+        public readonly ReadWriteBuffer<int> counts;
+        public readonly int launchedWidth;
+
+        /// <inheritdoc/>
+        public float4 Execute()
+        {
+            int slot = (ThreadIds.Y * this.launchedWidth) + ThreadIds.X;
+
+            Hlsl.InterlockedAdd(ref this.counts[slot], 1);
+
+            return float4.Zero;
+        }
+    }
 }
