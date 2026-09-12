@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using System.Threading;
 using ComputeWeave.SourceGeneration.Extensions;
 using ComputeWeave.SourceGeneration.Helpers;
@@ -175,7 +176,8 @@ internal static class HlslDefinitionsSyntaxProcessor
     /// <param name="types">The sequence of discovered custom types.</param>
     /// <param name="instanceMethods">The collection of discovered instance methods for custom struct types.</param>
     /// <param name="constructors">The collection of discovered constructors for custom struct types.</param>
-    /// <param name="typeDeclarations">The collection of declarations of all custom types.</param>
+    /// <param name="typeDeclarations">The collection of declarations of all custom types, in a valid HLSL declaration order.</param>
+    /// <param name="forwardDeclarations">The member method prototypes naming a custom type ahead of its declaration, with that type.</param>
     /// <param name="methodDeclarations">The collection of implementations of all methods in all custom types.</param>
     public static void GetDeclaredTypes(
         ImmutableArrayBuilder<DiagnosticInfo> diagnostics,
@@ -184,6 +186,7 @@ internal static class HlslDefinitionsSyntaxProcessor
         IReadOnlyDictionary<IMethodSymbol, MethodDeclarationSyntax> instanceMethods,
         IReadOnlyDictionary<IMethodSymbol, (MethodDeclarationSyntax, MethodDeclarationSyntax)> constructors,
         out ImmutableArray<HlslUserType> typeDeclarations,
+        out ImmutableArray<(IMethodSymbol Prototype, INamedTypeSymbol Type)> forwardDeclarations,
         out ImmutableArray<string> methodDeclarations)
     {
         using ImmutableArrayBuilder<HlslUserType> typeDeclarationsBuilder = new();
@@ -191,8 +194,9 @@ internal static class HlslDefinitionsSyntaxProcessor
 
         IReadOnlyCollection<INamedTypeSymbol> invalidTypes;
 
-        // Process the discovered types
-        foreach (INamedTypeSymbol type in HlslKnownTypes.GetCustomTypes(types, out invalidTypes))
+        // Process the discovered types. The prototypes a declaration holds are the ones gathered below, so
+        // the same methods and constructors are what the declaration order is resolved over.
+        foreach (INamedTypeSymbol type in HlslKnownTypes.GetCustomTypes(types, instanceMethods.Keys.Concat(constructors.Keys), out invalidTypes, out forwardDeclarations))
         {
             string structType = type.GetFullyQualifiedMetadataName().ToHlslIdentifierName();
             StructDeclarationSyntax structDeclaration = StructDeclaration(structType);

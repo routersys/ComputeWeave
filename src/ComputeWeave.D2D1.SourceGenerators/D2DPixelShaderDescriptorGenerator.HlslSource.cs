@@ -125,7 +125,18 @@ partial class D2DPixelShaderDescriptorGenerator
                 instanceMethods,
                 constructors,
                 out ImmutableArray<HlslUserType> typeDeclarations,
+                out ImmutableArray<(IMethodSymbol Prototype, INamedTypeSymbol Type)> forwardDeclarations,
                 out ImmutableArray<string> typeMethodDeclarations);
+
+            token.ThrowIfCancellationRequested();
+
+            // The FXC compiler has no type forward declaration, so a prototype naming a type the declaration
+            // order cannot put ahead of it is refused here, at the prototype, rather than written into HLSL
+            // that cannot build. The prototypes are the author's, gathered with their syntax by the rewriter.
+            foreach ((IMethodSymbol Prototype, INamedTypeSymbol Type) forwardDeclaration in forwardDeclarations)
+            {
+                diagnostics.Add(InvalidCustomTypeDeclarationOrder, forwardDeclaration.Prototype, structDeclarationSymbol, forwardDeclaration.Prototype, forwardDeclaration.Type);
+            }
 
             token.ThrowIfCancellationRequested();
 
@@ -562,14 +573,15 @@ partial class D2DPixelShaderDescriptorGenerator
             writer.WriteLine("#include \"d2d1effecthelpers.hlsli\"");
             writer.WriteLine();
 
-            // The FXC compiler does not support type forward declarations
+            // The FXC compiler does not support type forward declarations, so none is written: a type the
+            // declaration order cannot resolve has already been reported by the time the source is written
             HlslSourceSyntaxProcessor.WriteTopDeclarations(
                 writer,
                 definedConstants,
                 staticFields,
                 processedMethods,
                 typeDeclarations,
-                includeTypeForwardDeclarations: false);
+                typeForwardDeclarations: ImmutableArray<string>.Empty);
 
             HlslSourceSyntaxProcessor.WriteCapturedFields(writer, valueFields);
 

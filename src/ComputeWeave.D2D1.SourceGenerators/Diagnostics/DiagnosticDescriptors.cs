@@ -1517,4 +1517,24 @@ partial class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "What is written into the generated HLSL is built from the body of the declaration, so one that carries none has nothing to write. An extern declaration is that case, and C# reports only a warning for it. Without this a method or a local function is written out as a declaration with no body and the shader compiler answers by naming generated code the author never wrote, while a constructor and the entry point end the generator instead, which discards the descriptors for every shader in the compilation unit. What is reported follows what is written out: a member of an external type is written out where the shader reaches it, and one it never reaches is left alone. A declaration split into parts is unaffected, the implementing part being the one that is read.",
         helpLinkUri: "https://github.com/routersys/ComputeWeave");
+
+    /// <summary>
+    /// Gets a <see cref="DiagnosticDescriptor"/> for a custom type member whose signature names a custom type ahead of its declaration.
+    /// <para>
+    /// Format: <c>"The D2D1 shader of type {0} uses the custom type member {1}, whose signature names the custom type {2} before that type is declared (the member signatures of the custom types name each other in a cycle, which no declaration order resolves, and the FXC compiler does not support type forward declarations)"</c>.
+    /// </para>
+    /// </summary>
+    /// <remarks>
+    /// This has no compute counterpart. DXC accepts a type forward declaration, so the compute generator writes
+    /// one for such a type instead, and the shader builds. FXC has none, so here the member is refused.
+    /// </remarks>
+    public static readonly DiagnosticDescriptor InvalidCustomTypeDeclarationOrder = new(
+        id: "CMPWD2D0100",
+        title: "Custom type member naming a type before its declaration",
+        messageFormat: "The D2D1 shader of type {0} uses the custom type member {1}, whose signature names the custom type {2} before that type is declared (the member signatures of the custom types name each other in a cycle, which no declaration order resolves, and the FXC compiler does not support type forward declarations)",
+        category: "ComputeWeave.D2D1.Shaders",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "HLSL needs a custom type declared ahead of every declaration naming it, and the generated HLSL declares the custom types in an order that satisfies the fields and the member method prototypes each of them holds. A field cannot name a type declared later, as C# reports a cycle through fields, so an order always exists for fields alone. Member signatures can name each other in a cycle, and then no order puts every type ahead of the prototypes naming it. The compute generator resolves that with a type forward declaration, which DXC accepts, but FXC has no such declaration, so a pixel shader with such a cycle would be written into HLSL that cannot build, and the failure would name generated code the author never wrote. The member reported is the prototype read before the type it names is declared; moving it out of its type, for instance into a static method taking both types, removes the cycle.",
+        helpLinkUri: "https://github.com/routersys/ComputeWeave");
 }
