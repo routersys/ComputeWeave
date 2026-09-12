@@ -337,8 +337,8 @@ internal static partial class HlslKnownTypes
         out IReadOnlyCollection<INamedTypeSymbol> invalidTypes,
         out ImmutableArray<(IMethodSymbol Prototype, INamedTypeSymbol Type)> forwardDeclarations)
     {
-        // Local function to recursively gather nested types
-        static void ExploreTypes(INamedTypeSymbol type, HashSet<INamedTypeSymbol> customTypes, HashSet<INamedTypeSymbol> invalidTypes)
+        // Local function to recursively gather nested types. The path holds the types whose fields are being explored.
+        static void ExploreTypes(INamedTypeSymbol type, List<INamedTypeSymbol> path, HashSet<INamedTypeSymbol> customTypes, HashSet<INamedTypeSymbol> invalidTypes)
         {
             // Explicitly prevent bool from being a field in a custom struct
             if (type.SpecialType == SpecialType.System_Boolean)
@@ -366,10 +366,32 @@ internal static partial class HlslKnownTypes
                 return;
             }
 
-            if (!customTypes.Add(type))
+            // A type reached again through its own fields has a layout cycle, which C# reports, and which HLSL
+            // cannot lay out either: the shader compiler runs out of stack on a use of such a type instead of
+            // reporting it. So every type on the cycle is refused as invalid rather than declared, which is
+            // also what keeps the ordering below from ever waiting on a field of one.
+            for (int i = 0; i < path.Count; i++)
+            {
+                if (!SymbolEqualityComparer.Default.Equals(path[i], type))
+                {
+                    continue;
+                }
+
+                for (int j = i; j < path.Count; j++)
+                {
+                    _ = customTypes.Remove(path[j]);
+                    _ = invalidTypes.Add(path[j]);
+                }
+
+                return;
+            }
+
+            if (invalidTypes.Contains(type) || !customTypes.Add(type))
             {
                 return;
             }
+
+            path.Add(type);
 
             foreach (IFieldSymbol field in type.GetMembers().OfType<IFieldSymbol>())
             {
@@ -378,10 +400,13 @@ internal static partial class HlslKnownTypes
                     continue;
                 }
 
-                ExploreTypes((INamedTypeSymbol)field.Type, customTypes, invalidTypes);
+                ExploreTypes((INamedTypeSymbol)field.Type, path, customTypes, invalidTypes);
             }
+
+            path.RemoveAt(path.Count - 1);
         }
 
+        List<INamedTypeSymbol> path = [];
         HashSet<INamedTypeSymbol> customTypes = new(SymbolEqualityComparer.Default);
         HashSet<INamedTypeSymbol> invalidTypes2 = new(SymbolEqualityComparer.Default);
 
@@ -397,7 +422,7 @@ internal static partial class HlslKnownTypes
                 continue;
             }
 
-            ExploreTypes(type, customTypes, invalidTypes2);
+            ExploreTypes(type, path, customTypes, invalidTypes2);
         }
 
         invalidTypes = invalidTypes2;
@@ -422,8 +447,9 @@ internal static partial class HlslKnownTypes
         // A declaration names the types of its fields and of the member method prototypes it holds, and HLSL
         // needs each of them declared ahead of it. A field needs its type complete, so a field cannot go ahead
         // of its type, while a prototype only needs its types declared, which a forward declaration of the
-        // type gives. C# reports a cycle through fields, so the only cycles a declaration order cannot resolve
-        // run through prototypes, and those are the types written ahead of their declaration.
+        // type gives. A cycle through fields is refused before the types get here, so the only cycles a
+        // declaration order cannot resolve run through prototypes, and those are the types written ahead of
+        // their declaration.
         foreach (IMethodSymbol method in memberMethods)
         {
             if (!signatures.TryGetValue(method.ContainingType, out List<(IMethodSymbol Prototype, INamedTypeSymbol Type)>? named))
@@ -509,7 +535,8 @@ internal static partial class HlslKnownTypes
                 // queue has gone a full round with nothing declared, so every remaining type waits on another.
                 // The first type in line whose fields are declared is written next, and the types its prototypes
                 // still name are forward declared ahead of it. A type whose fields are not declared yet keeps
-                // its turn for after them, which a field needing its type complete is what asks for.
+                // its turn for after them, which a field needing its type complete is what asks for, and the
+                // fields of the types here form no cycle, so one round of the line always comes to such a type.
                 if (deferred <= queue.Count)
                 {
                     queue.Enqueue(entry);
