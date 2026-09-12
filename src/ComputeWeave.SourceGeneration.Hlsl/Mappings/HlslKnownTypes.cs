@@ -400,7 +400,17 @@ internal static partial class HlslKnownTypes
                     continue;
                 }
 
-                ExploreTypes((INamedTypeSymbol)field.Type, path, customTypes, invalidTypes);
+                // A field of a type with no name, a pointer or a fixed size buffer, has no HLSL counterpart, so
+                // the type holding it is refused rather than declared (its remaining fields need no exploring)
+                if (field.Type is not INamedTypeSymbol fieldType)
+                {
+                    _ = customTypes.Remove(type);
+                    _ = invalidTypes.Add(type);
+
+                    break;
+                }
+
+                ExploreTypes(fieldType, path, customTypes, invalidTypes);
             }
 
             path.RemoveAt(path.Count - 1);
