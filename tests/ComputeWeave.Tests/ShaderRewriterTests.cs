@@ -2669,8 +2669,6 @@ public partial class ShaderRewriterTests
             #define __GroupSize__get_Y 1
             #define __GroupSize__get_Z 1
 
-            struct ComputeWeave_Tests_ShaderRewriterTests_LocalFunctionData;
-
             struct ComputeWeave_Tests_ShaderRewriterTests_LocalFunctionData
             {
                 int value;
