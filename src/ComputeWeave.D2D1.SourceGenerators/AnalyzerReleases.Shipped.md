@@ -119,3 +119,11 @@ CMPWD2D0099 | ComputeWeave.D2D1.Shaders | Error | [Documentation](https://github
 Rule ID | New Category | New Severity | Old Category | Old Severity | Notes
 --------|--------------|--------------|--------------|--------------|-------
 CMPWD2D0094 | ComputeWeave.D2D1.Shaders | Error | ComputeWeave.D2D1.Shaders | Info | [Documentation](https://github.com/routersys/ComputeWeave)
+
+## Release 2.6
+
+### New Rules
+
+Rule ID | Category | Severity | Notes
+--------|----------|----------|-------
+CMPWD2D0100 | ComputeWeave.D2D1.Shaders | Error | [Documentation](https://github.com/routersys/ComputeWeave)
