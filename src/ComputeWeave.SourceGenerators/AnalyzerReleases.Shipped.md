@@ -166,3 +166,11 @@ CMPW0127 | ComputeWeave.Shaders | Error | [Documentation](https://github.com/rou
 Rule ID | New Category | New Severity | Old Category | Old Severity | Notes
 --------|--------------|--------------|--------------|--------------|-------
 CMPW0121 | ComputeWeave.Shaders | Error | ComputeWeave.Shaders | Info | [Documentation](https://github.com/routersys/ComputeWeave)
+
+## Release 2.6
+
+### New Rules
+
+Rule ID | Category | Severity | Notes
+--------|----------|----------|-------
+CMPW0128 | ComputeWeave.Shaders | Error | [Documentation](https://github.com/routersys/ComputeWeave)
