@@ -17,8 +17,17 @@ internal static class AnalyzerHelper
 
     public static void AssertDiagnostics(DiagnosticAnalyzer analyzer, string[] sources, string assemblyName, CSharpCompilationOptions options, params string[] expectedIds)
     {
-        CSharpCompilation compilation = CompilationHelper.CreateCompilation(sources, assemblyName, options);
+        AssertDiagnostics(analyzer, CompilationHelper.CreateCompilation(sources, assemblyName, options), expectedIds);
+    }
 
+    /// <summary>
+    /// Runs an analyzer over a compilation and asserts the diagnostics it reports, by id.
+    /// </summary>
+    /// <param name="analyzer">The analyzer to run.</param>
+    /// <param name="compilation">The compilation to analyze, which may carry errors of its own.</param>
+    /// <param name="expectedIds">The ids of the diagnostics the analyzer is expected to report.</param>
+    public static void AssertDiagnostics(DiagnosticAnalyzer analyzer, CSharpCompilation compilation, params string[] expectedIds)
+    {
         ImmutableArray<Diagnostic> diagnostics = compilation
             .WithAnalyzers([analyzer])
             .GetAnalyzerDiagnosticsAsync()

@@ -1,6 +1,7 @@
 using System.Linq;
 using ComputeWeave.SourceGenerators;
 using ComputeWeave.Tests.SourceGenerators.Helpers;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace ComputeWeave.Tests.SourceGenerators.Shaders;
@@ -74,6 +75,54 @@ public class ConstantBufferSizeTests
                 }
             }
             """;
+    }
+
+    /// <summary>
+    /// Two types holding a field of each other, which C# reports as a layout cycle, one of them captured.
+    /// </summary>
+    private const string LayoutCycleSource = """
+        using ComputeWeave;
+
+        namespace Shaders;
+
+        internal struct First
+        {
+            public Second second;
+        }
+
+        internal struct Second
+        {
+            public First first;
+        }
+
+        [ThreadGroupSize(DefaultThreadGroupSizes.X)]
+        [GeneratedComputeShaderDescriptor]
+        internal readonly partial struct Shader : IComputeShader
+        {
+            private readonly ReadWriteBuffer<float> buffer;
+            private readonly First first;
+
+            public void Execute()
+            {
+                this.buffer[0] = 1;
+            }
+        }
+        """;
+
+    /// <summary>
+    /// The size is walked over source the compiler has rejected as well, and a field closing a layout cycle
+    /// used to be followed around it until the stack ran out. Such a field is skipped, so the walk ends.
+    /// </summary>
+    [TestMethod]
+    public void AShaderCapturingATypeInALayoutCycleIsWalkedToTheEnd()
+    {
+        CSharpCompilation compilation = CompilationHelper.CreateCompilationAllowingErrors(LayoutCycleSource, "ConstantBufferSizeLayoutCycleTests");
+
+        Assert.IsTrue(
+            compilation.GetDiagnostics().Any(static diagnostic => diagnostic.Id == "CS0523"),
+            string.Join(", ", compilation.GetDiagnostics().Select(static diagnostic => diagnostic.Id).Distinct()));
+
+        AnalyzerHelper.AssertDiagnostics(new ExcedeedComputeShaderDispatchDataSizeAnalyzer(), compilation);
     }
 
     [TestMethod]
