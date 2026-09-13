@@ -815,6 +815,20 @@ public class ShaderGeneratorDiagnosticTests
         AssertReports(Shader("", $"{statement} this.buffer[0] = 1;"), assemblyName, expectedId);
     }
 
+    /// <summary>
+    /// A custom type holding a field of a type with no name, a pointer or a fixed size buffer, is refused as an
+    /// invalid type, once. The explorer used to cast every field type to a named one and end the generator on
+    /// these, whether the type is used in the body or captured by the shader.
+    /// </summary>
+    [TestMethod]
+    [DataRow("private unsafe struct Block { public fixed float values[4]; }", "Block block = default; this.buffer[0] = 1;", "CustomTypeFixedBufferFieldTests")]
+    [DataRow("private unsafe struct Node { public float value; public Node* next; }", "Node node = default; this.buffer[0] = node.value;", "CustomTypePointerFieldTests")]
+    [DataRow("private unsafe struct Block { public fixed float values[4]; } private readonly Block block;", "this.buffer[0] = 1;", "CapturedCustomTypeFixedBufferFieldTests")]
+    public void ACustomTypeWithAFieldOfAnUnnamedTypeIsRefused(string member, string body, string assemblyName)
+    {
+        AssertReportsAt(Shader(member, body), assemblyName, "CMPW0050", 1);
+    }
+
     private static string AttributeShader(string argument)
     {
         return $$"""
