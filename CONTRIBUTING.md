@@ -56,10 +56,14 @@ You do not need to read all of it. Start with [Getting Started](#getting-started
     - [Reading a test run](#reading-a-test-run)
     - [Known baseline](#known-baseline)
     - [Other verification](#other-verification)
-11. [Evidence](#evidence)
-12. [Performance Changes](#performance-changes)
-13. [Upstream Divergence](#upstream-divergence)
-14. [Code of Conduct](#code-of-conduct)
+11. [Releasing](#releasing)
+    - [Choosing the version](#choosing-the-version)
+    - [Preparing the tree](#preparing-the-tree)
+    - [Cutting the release](#cutting-the-release)
+12. [Evidence](#evidence)
+13. [Performance Changes](#performance-changes)
+14. [Upstream Divergence](#upstream-divergence)
+15. [Code of Conduct](#code-of-conduct)
 
 ---
 
@@ -552,6 +556,51 @@ Running the suites is not the whole of verification.
 - A change on a path with an established allocation contract is verified by measuring managed allocation with `GC.GetAllocatedBytesForCurrentThread`, not by inspection; the contract itself is stated under [Allocation contracts](#allocation-contracts).
 - If you add or modify an analyzer diagnostic that produces build errors, verify the complete solution in addition to the analyzer tests.
 - For public API or descriptor changes, run the compatibility, deterministic-generation and golden-data checks of the affected subsystem.
+
+---
+
+## Releasing
+
+The version lives in one place: `VersionPrefix` in [`build/Directory.Build.props`](/build/Directory.Build.props). `AssemblyVersion` is derived from it, and no document or test repeats it. A release is a commit on `main` carrying a tag of the form `v<VersionPrefix>`.
+
+### Choosing the version
+
+The number follows semantic versioning, decided from the public surface rather than from the size of the change. Compare the sources against the previous tag and read every added and removed `public` or `protected` line:
+
+```console
+git diff <previous tag>..main --stat -- src/
+git diff <previous tag>..main -- src/ | grep -E "^[+-]" | grep -vE "^(\+\+\+|---)" | grep -E "\b(public|protected)\b"
+```
+
+- Removing or narrowing anything a consumer could rely on — a public member, or a setting that used to be read — is a major release.
+- A new public type or member that a consumer can reach is a minor release. So is a new analyzer diagnostic: it is a new contract, and a consumer's build that used to pass can fail on it, even though the only added line is a descriptor.
+- A change whose public additions are confined to the generator and analyzer assemblies, which consumers load but do not compile against, is a patch release, as is a fix that adds nothing.
+
+The parameter names and messages of exceptions do not move the version; the README documents the exception types, not their wording.
+
+### Preparing the tree
+
+The commits that prepare a release go to `main` directly rather than through a pull request. A bump carries nothing to review beyond the number, and the number is decided above.
+
+- The bump changes `VersionPrefix` and nothing else, with the subject `次のリリース版数をX.Y.Zへ上げる`.
+- If `AnalyzerReleases.Unshipped.md` holds rules in either generator project, a second commit moves them into that project's `AnalyzerReleases.Shipped.md` under `## Release <major>.<minor>` of the version being shipped, keeping `New Rules` and `Changed Rules` in their own sections, and leaves the unshipped file with its two comment lines. The build refuses a rule listed in both files or in neither (`RS2001`, `RS2000`), and [`build/verify-analyzer-releases.ps1`](/build/verify-analyzer-releases.ps1) refuses a changed rule recorded as a new one.
+
+Before tagging, confirm that CI succeeded on the tip of `main`, that the checks under `build/` that need no build all pass, that [the divergence ledger](#upstream-divergence) is current, and that the notes read as intended:
+
+```console
+pwsh build/generate-release-notes.ps1 -Version X.Y.Z -CurrentTag vX.Y.Z -CurrentSha HEAD
+```
+
+Give it the tag that does not exist yet. The notes group the merged pull requests of the range by [label](#labels), so a missing label shows here before it is published.
+
+### Cutting the release
+
+Either shipping path publishes the same packages and writes the same notes.
+
+- Push the tag: `git tag vX.Y.Z` on the tip of `main`, then `git push origin vX.Y.Z`. [`release.yml`](/.github/workflows/release.yml) refuses a tag that is not on the default branch, builds with the version taken from the tag, runs every suite CI runs and the native library resolver suite, and publishes.
+- Or start [`quick-release.yml`](/.github/workflows/quick-release.yml) with empty inputs. It reads `VersionPrefix` from the tree, refuses to go on unless CI concluded successfully on that commit, creates and pushes the tag itself, and publishes without running the suites again. The bump therefore has to be on `main` before it starts.
+
+The tag goes on the tip of `main` at that moment: the manual path can tag nothing else, and the tag path only checks that the commit is on the default branch, so keeping to the tip there is the convention rather than a rule it enforces. The tip need not be the bump commit; a merge or a ledger commit that landed after the bump is a fine place for it, and the notes then cover it. A tagged commit is never rewritten, as the [commit conventions](#commit-conventions) say. The NuGet.org index follows the publish by a few minutes, so a 404 right after a successful run is not a failure.
 
 ---
 
