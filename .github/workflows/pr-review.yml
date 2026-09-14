@@ -40,24 +40,39 @@ jobs:
             const isDoc    = p => /\.md$/i.test(p) || p.startsWith('.github/LICENSE/');
             const docsOnly = paths.length > 0 && paths.every(isDoc);
 
-            const runtime    = touched(/^src\/ComputeWeave\/(?!.*\.md$)/);
-            const coreLib    = touched(/^src\/ComputeWeave\.Core\//);
-            const generators = touched(/^src\/ComputeWeave\.SourceGenerators\//);
-            const dxc        = touched(/^src\/ComputeWeave\.Dxc\//);
-            const allocator  = touched(/^src\/ComputeWeave\.D3D12MemoryAllocator\//);
-            const testsOnly  = touched(/^tests\//);
-            const buildFiles = touched(/^(build\/|global\.json|nuget\.config|.*\.sln$|Directory\.Build)/);
-            const workflows  = touched(/^\.github\/workflows\//);
+            const runtime          = touched(/^src\/ComputeWeave\/(?!.*\.md$)/);
+            const coreLib          = touched(/^src\/ComputeWeave\.Core\//);
+            const generators       = touched(/^src\/ComputeWeave\.(SourceGenerators|CodeFixers)\//);
+            const dxc              = touched(/^src\/ComputeWeave\.Dxc\//);
+            const allocator        = touched(/^src\/ComputeWeave\.D3D12MemoryAllocator\//);
+            const d3d12Bindings    = touched(/^src\/ComputeWeave\.Win32\.D3D12\//);
+            const sharedGenerators = touched(/^src\/ComputeWeave\.(SourceGeneration|SourceGeneration\.Hlsl|Core\.SourceGenerators|CodeFixing)\//);
+            const d2d1             = touched(/^src\/ComputeWeave\.(D2D1|Win32\.D2D1)\//);
+            const d2d1Generators   = touched(/^src\/ComputeWeave\.D2D1\.(SourceGenerators|CodeFixers)\//);
+            const testsOnly        = touched(/^tests\//);
+            const buildFiles       = touched(/^(build\/|global\.json|nuget\.config|.*\.sln$|Directory\.Build)/);
+            const workflows        = touched(/^\.github\/workflows\//);
 
-            const anySource = runtime || coreLib || generators || dxc || allocator;
+            const anySource = runtime || coreLib || generators || dxc || allocator || d3d12Bindings || sharedGenerators || d2d1 || d2d1Generators;
+            const anyGenerator = generators || sharedGenerators || d2d1Generators;
 
             // CONTRIBUTING は src/ComputeWeave の変更を4スイート全部で確認するよう求める。
+            const computeSuites  = ['ComputeWeave.Tests.SourceGenerators', 'ComputeWeave.Tests.Internals', 'ComputeWeave.Tests', 'ComputeWeave.Tests.DeviceLost'];
+            const direct2dSuites = ['ComputeWeave.D2D1.Tests.SourceGenerators', 'ComputeWeave.D2D1.Tests', 'ComputeWeave.D2D1.Tests.AssemblyLevelAttributes'];
             const suites = new Set();
-            if (runtime || coreLib || dxc || allocator || buildFiles) {
-              ['SourceGenerators', 'Internals', 'Tests', 'DeviceLost'].forEach(s => suites.add(s));
+            if (runtime || coreLib || dxc || allocator || d3d12Bindings || buildFiles) {
+              computeSuites.forEach(s => suites.add(s));
             }
-            if (generators) {
-              ['SourceGenerators', 'Internals', 'Tests'].forEach(s => suites.add(s));
+            if (generators || sharedGenerators) {
+              ['ComputeWeave.Tests.SourceGenerators', 'ComputeWeave.Tests.Internals', 'ComputeWeave.Tests'].forEach(s => suites.add(s));
+            }
+            // 共有の生成器層は両側の生成器へ取り込まれ、Direct2D は Core に依存し、その束縛は D3D12 の束縛から18 file を取り込む。
+            if (coreLib || sharedGenerators || d2d1Generators) {
+              direct2dSuites.forEach(s => suites.add(s));
+            }
+            if (d3d12Bindings) suites.add('ComputeWeave.D2D1.Tests');
+            if (d2d1) {
+              ['ComputeWeave.D2D1.Tests', 'ComputeWeave.D2D1.Tests.AssemblyLevelAttributes'].forEach(s => suites.add(s));
             }
             if (testsOnly && !anySource) suites.add('変更した該当スイート');
 
@@ -174,13 +189,12 @@ jobs:
               lines.push('');
               lines.push('```console');
               lines.push('dotnet build ComputeWeave.sln -c Release -p:Platform=x64');
-              for (const s of ['SourceGenerators', 'Internals', 'Tests', 'DeviceLost']) {
-                if (!suites.has(s)) continue;
-                const proj = s === 'Tests' ? 'ComputeWeave.Tests' : `ComputeWeave.Tests.${s}`;
+              for (const proj of [...computeSuites, ...direct2dSuites]) {
+                if (!suites.has(proj)) continue;
                 lines.push(`dotnet test tests/${proj}/${proj}.csproj -c Release -p:Platform=x64`);
               }
               lines.push('```');
-              if (generators) {
+              if (anyGenerator) {
                 lines.push('');
                 lines.push('ビルドエラーを出す診断を変えた場合は、アナライザーの試験に加えて解全体の検証が要ります。');
                 lines.push('If a diagnostic that produces build errors changed, verify the complete solution as well.');
