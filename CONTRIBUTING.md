@@ -488,10 +488,17 @@ The platform argument is required. Without it the solution builds the first plat
 | `ComputeWeave.Tests` | end-to-end behavior, including image comparison | real device |
 | `ComputeWeave.Tests.DeviceLost` | device removal; runs in its own process because it destroys a device | real device |
 | `ComputeWeave.Tests.DebugLayer` | Direct3D 12 debug layer and GPU-based validation, enabled process-wide before any device exists | real device |
+| `ComputeWeave.Tests.GlobalStatements` | a top-level statement program that dispatches one shader and checks the result; judged by its exit code, not by a test framework | real device |
+| `ComputeWeave.Tests.NativeLibrariesResolver` | packs the packages and consumes them from a sample project, so native library resolution is exercised the way a consumer sees it; runs on the release workflow only | real device |
+| `ComputeWeave.D2D1.Tests` | Direct2D authoring: effects, resource textures, transform mappers and image comparison | a Direct3D 11 device per test: hardware where an adapter is present, WARP otherwise |
+| `ComputeWeave.D2D1.Tests.SourceGenerators` | Direct2D generator and analyzer behavior | none |
+| `ComputeWeave.D2D1.Tests.AssemblyLevelAttributes` | shader compile options declared at assembly level, which no other suite can carry | none |
 
 Many tests in the internals suite run against a **shared** device — the harness resolves one per process and hands the same instance to every test — so never inject a fault into it. Poisoning or terminating a shared device takes every later test in the process down with it, and the resulting cascade looks like a regression in code you did not touch.
 
 Device-backed tests are parameterized by adapter. The harness resolves one hardware-accelerated adapter and one WARP adapter; when no hardware-accelerated adapter is present, the variants that target it are reported as inconclusive rather than failed, while the WARP variants still run. A WARP-only run therefore cannot confirm or refute a failure that occurs only on hardware.
+
+The Direct2D suite takes no adapter parameter; its fixture creates one device, hardware where an adapter is present and WARP otherwise. Its image comparisons hold every reference to WARP: the eleven references are the ones the compute suite holds, linked rather than copied, and seven of the eleven shaders hash `sin` or `cos` the way described under [Known baseline](#known-baseline). Where a hardware adapter is present those seven are drawn on it, so the draw and the readback still happen there, and then drawn a second time on WARP, which is the image the comparison reads. The four that carry no such hash compare on whichever device the fixture created. The CI runner has an adapter, so the second draw is what lets those seven decide anything there.
 
 The debug-layer suite is where an illegal barrier or an incompatible layout is reported as an error instead of as silently wrong pixels. Its info queue is flushed at the next assertion, so a single process must exercise a single path; otherwise a message from one path is attributed to the next.
 
