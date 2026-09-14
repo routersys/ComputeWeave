@@ -85,6 +85,8 @@ jobs:
             const mixed = [];
             if (commits.length <= 30) {
               for (const c of commits) {
+                // 併合コミットは取り込んだ側の変更を運ぶだけなので、実装と試験の分け方は見ない。
+                if (c.parents.length > 1) continue;
                 const detail = await github.rest.repos.getCommit({ owner, repo, ref: c.sha });
                 const f = (detail.data.files || []).map(x => x.filename);
                 const hasSrc  = f.some(p => /^src\//.test(p));
