@@ -188,6 +188,75 @@ public class Test_D2DPixelShaderDescriptorGenerator_Diagnostics
 
         CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnostics(source, "CMPWD2D0097");
     }
+
+    /// <summary>
+    /// A 64 bit integer literal, which has no HLSL literal the generator maps. The refusal comes from the type
+    /// tracking both generators share, so what this pins is that the pixel shader generator answers with its own
+    /// identifier for an invalid discovered type. The constant is a row of its own, being refused at another site.
+    /// </summary>
+    [TestMethod]
+    public void AWideIntegerLiteralIsDiagnosed()
+    {
+        const string source = """
+            using ComputeWeave;
+            using ComputeWeave.D2D1;
+            using float4 = global::ComputeWeave.Float4;
+
+            namespace MyNamespace;
+
+            [D2DInputCount(0)]
+            [D2DShaderProfile(D2D1ShaderProfile.PixelShader50)]
+            [D2DGeneratedPixelShaderDescriptor]
+            internal readonly partial struct MyShader : ID2D1PixelShader
+            {
+                private readonly uint unsigned;
+
+                public float4 Execute()
+                {
+                    float value = 5L < this.unsigned ? 1.0f : 0.0f;
+
+                    return value;
+                }
+            }
+            """;
+
+        CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnostics(source, "CMPWD2D0041");
+    }
+
+    /// <summary>
+    /// A 64 bit integer constant, whose value has no HLSL literal to write it as.
+    /// </summary>
+    [TestMethod]
+    public void AWideIntegerConstantIsDiagnosed()
+    {
+        const string source = """
+            using ComputeWeave;
+            using ComputeWeave.D2D1;
+            using float4 = global::ComputeWeave.Float4;
+
+            namespace MyNamespace;
+
+            [D2DInputCount(0)]
+            [D2DShaderProfile(D2D1ShaderProfile.PixelShader50)]
+            [D2DGeneratedPixelShaderDescriptor]
+            internal readonly partial struct MyShader : ID2D1PixelShader
+            {
+                private const long Big = 5;
+
+                private readonly int signed;
+
+                public float4 Execute()
+                {
+                    float value = (float)(Big + this.signed);
+
+                    return value;
+                }
+            }
+            """;
+
+        CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnostics(source, "CMPWD2D0041");
+    }
+
     /// <summary>
     /// An indexer declared on a custom type. The rewriters are shared with the compute generator, so what
     /// this pins is that the pixel shader generator answers with its own identifier.

@@ -499,14 +499,9 @@ internal sealed partial class ShaderSourceRewriter(
                         return ParseMappedExpression(constantLiteral!);
                     }
 
-                    if (TryGetConstantLiteral(fieldOperation.Field.ConstantValue, out string? constantValue))
+                    if (TryRewriteConstantReference(fieldOperation.Field, out IdentifierNameSyntax? constantName))
                     {
-                        ConstantDefinitions[fieldOperation.Field] = constantValue!;
-
-                        string ownerTypeName = ((INamedTypeSymbol)fieldOperation.Field.ContainingSymbol).ToDisplayString().ToHlslIdentifierName();
-                        string constantName = $"__{ownerTypeName}__{fieldOperation.Field.Name}";
-
-                        return IdentifierName(constantName);
+                        return constantName;
                     }
                 }
 
