@@ -57,8 +57,31 @@ public class Test_D2DPixelShaderDescriptorGenerator_DiagnosticLocations
         }
         """;
 
-    // A thread synchronization is what the pixel shader profile refuses, and the rewriter maps it like any intrinsic
+    // FXC refuses abort in the library it compiles when linking is enabled, and the rewriter maps it like any intrinsic
     private const string CompilerRefusedSource = """
+        using ComputeWeave;
+        using ComputeWeave.D2D1;
+        using float4 = global::ComputeWeave.Float4;
+
+        namespace MyNamespace;
+
+        [D2DInputCount(0)]
+        [D2DShaderProfile(D2D1ShaderProfile.PixelShader50)]
+        [D2DGeneratedPixelShaderDescriptor]
+        internal readonly partial struct MyShader : ID2D1PixelShader
+        {
+            private readonly float time;
+
+            public float4 Execute()
+            {
+                Hlsl.Abort();
+
+                return time;
+            }
+        }
+        """;
+
+    private const string ThreadSynchronizationSource = """
         using ComputeWeave;
         using ComputeWeave.D2D1;
         using float4 = global::ComputeWeave.Float4;
@@ -123,6 +146,16 @@ public class Test_D2DPixelShaderDescriptorGenerator_DiagnosticLocations
     public void AShaderTheCompilerRefusesIsReportedAtTheShader()
     {
         AssertReportedAt(CompilerRefusedSource, "CMPWD2D0034", "internal readonly partial struct MyShader");
+    }
+
+    /// <summary>
+    /// The call is the place to change, so the report lands on it rather than on the shader type the forwarded
+    /// compiler error used to land on.
+    /// </summary>
+    [TestMethod]
+    public void AThreadSynchronizationIntrinsicIsReportedAtTheCall()
+    {
+        AssertReportedAt(ThreadSynchronizationSource, "CMPWD2D0102", "Hlsl.GroupMemoryBarrierWithGroupSync();");
     }
 
     [TestMethod]
