@@ -294,6 +294,10 @@ public partial class ShaderRewriterTests
 
         new Random(42).NextBytes(data.AsSpan(0, 14).Cast<int, byte>());
 
+        // The right shift rows tell an arithmetic shift from a logical one only over a negative value
+        data[0] |= int.MinValue;
+        data[1] |= int.MinValue;
+
         using ReadWriteBuffer<int> buffer = device.Get().AllocateReadWriteBuffer(data);
 
         device.Get().For(1, new AmbiguousHlslOperatorsShader(buffer));
