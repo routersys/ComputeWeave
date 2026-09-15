@@ -332,6 +332,12 @@ internal abstract partial class HlslSourceRewriter(
 
                 return updatedNode.WithToken(Literal(literal, 0));
             }
+            else if (!HlslKnownTypes.IsKnownHlslType(type.GetFullyQualifiedMetadataName()))
+            {
+                // A literal of a type outside the set is refused like a local of that type: the shader compiler
+                // would read a 64 bit integer as a 32 bit one, and a decimal has no literal at all
+                _ = TrackType(type);
+            }
         }
         else if (updatedNode.IsKind(SyntaxKind.CharacterLiteralExpression) &&
                  updatedNode.Token.Value is char character)
@@ -517,14 +523,9 @@ internal abstract partial class HlslSourceRewriter(
             SemanticModel.For(node).GetOperation(node, CancellationToken) is IFieldReferenceOperation operation &&
             operation.Field.IsConst &&
             operation.Type!.TypeKind != TypeKind.Enum &&
-            TryGetConstantLiteral(operation.Field.ConstantValue, out string? constantLiteral))
+            TryRewriteConstantReference(operation.Field, out IdentifierNameSyntax? constantName))
         {
-            ConstantDefinitions[operation.Field] = constantLiteral!;
-
-            string ownerTypeName = ((INamedTypeSymbol)operation.Field.ContainingSymbol).ToDisplayString().ToHlslIdentifierName();
-            string constantName = $"__{ownerTypeName}__{operation.Field.Name}";
-
-            return IdentifierName(constantName);
+            return constantName;
         }
 
         return updatedNode;
@@ -579,6 +580,36 @@ internal abstract partial class HlslSourceRewriter(
     protected static ExpressionSyntax ParseMappedExpression(string mapping)
     {
         return ParseExpression(mapping).AsPrimaryExpression();
+    }
+
+    /// <summary>
+    /// Rewrites a reference to a constant field into the name of the HLSL definition written for it.
+    /// </summary>
+    /// <param name="field">The constant field being referenced.</param>
+    /// <param name="constantName">The name of the HLSL definition, if the constant can be written as one.</param>
+    /// <returns>Whether <paramref name="field"/> can be written as an HLSL definition.</returns>
+    /// <remarks>
+    /// A constant whose value has no HLSL literal is refused by tracking its type instead, the way a local of
+    /// that type is: the shader compiler reads a 64 bit integer as a 32 bit one, and a string has no HLSL form.
+    /// </remarks>
+    protected bool TryRewriteConstantReference(IFieldSymbol field, [NotNullWhen(true)] out IdentifierNameSyntax? constantName)
+    {
+        if (!TryGetConstantLiteral(field.ConstantValue, out string? constantLiteral))
+        {
+            _ = TrackType(field.Type);
+
+            constantName = null;
+
+            return false;
+        }
+
+        ConstantDefinitions[field] = constantLiteral!;
+
+        string ownerTypeName = ((INamedTypeSymbol)field.ContainingSymbol).ToDisplayString().ToHlslIdentifierName();
+
+        constantName = IdentifierName($"__{ownerTypeName}__{field.Name}");
+
+        return true;
     }
 
     protected static unsafe bool TryGetConstantLiteral(object? value, out string? literal)
@@ -640,6 +671,14 @@ internal abstract partial class HlslSourceRewriter(
             literal = text.IndexOfAny(FloatLiteralSpecialCharacters) == -1 ? $"{text}.0" : text;
 
             return true;
+        }
+
+        // A 64 bit integer has no HLSL literal to write: the digits alone are read as a 32 bit value
+        if (value is long or ulong)
+        {
+            literal = null;
+
+            return false;
         }
 
         if (value is IFormattable formattable)

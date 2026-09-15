@@ -40,41 +40,38 @@ jobs:
             const isDoc    = p => /\.md$/i.test(p) || p.startsWith('.github/LICENSE/');
             const docsOnly = paths.length > 0 && paths.every(isDoc);
 
-            const runtime          = touched(/^src\/ComputeWeave\/(?!.*\.md$)/);
-            const coreLib          = touched(/^src\/ComputeWeave\.Core\//);
-            const generators       = touched(/^src\/ComputeWeave\.(SourceGenerators|CodeFixers)\//);
-            const dxc              = touched(/^src\/ComputeWeave\.Dxc\//);
-            const allocator        = touched(/^src\/ComputeWeave\.D3D12MemoryAllocator\//);
-            const d3d12Bindings    = touched(/^src\/ComputeWeave\.Win32\.D3D12\//);
-            const sharedGenerators = touched(/^src\/ComputeWeave\.(SourceGeneration|SourceGeneration\.Hlsl|Core\.SourceGenerators|CodeFixing)\//);
-            const d2d1             = touched(/^src\/ComputeWeave\.(D2D1|Win32\.D2D1)\//);
-            const d2d1Generators   = touched(/^src\/ComputeWeave\.D2D1\.(SourceGenerators|CodeFixers)\//);
-            const testsOnly        = touched(/^tests\//);
-            const buildFiles       = touched(/^(build\/|global\.json|nuget\.config|.*\.sln$|Directory\.Build)/);
-            const workflows        = touched(/^\.github\/workflows\//);
+            const testsOnly  = touched(/^tests\//);
+            // 構築の file。Directory.Build.* は根だけでなく src と tests にも在り、その下の project すべてに効く。build/ の script は CI の道具で、構築には入らない。
+            const buildFiles = touched(/^(global\.json|nuget\.config|.*\.sln$|build\/.*\.(props|targets|snk)$)/) || touched(/(^|\/)Directory\.Build\./);
+            const workflows  = touched(/^\.github\/workflows\//);
 
-            const anySource = runtime || coreLib || generators || dxc || allocator || d3d12Bindings || sharedGenerators || d2d1 || d2d1Generators;
-            const anyGenerator = generators || sharedGenerators || d2d1Generators;
+            // 勧めるスイートの表は build/review-suites.json に在り、build/generate-review-suites.ps1 が project の評価から作る。読むのは土台の枝の先端の file で、PR 側の内容は読まない。payload の base.sha は枝が進んでも古いままなので使わない。
+            const mapFile = await github.rest.repos.getContent({ owner, repo, path: 'build/review-suites.json', ref: pr.base.ref });
+            const suiteMap = JSON.parse(Buffer.from(mapFile.data.content, 'base64').toString('utf8'));
 
-            // CONTRIBUTING は src/ComputeWeave の変更を4スイート全部で確認するよう求める。
-            const computeSuites  = ['ComputeWeave.Tests.SourceGenerators', 'ComputeWeave.Tests.Internals', 'ComputeWeave.Tests', 'ComputeWeave.Tests.DeviceLost'];
-            const direct2dSuites = ['ComputeWeave.D2D1.Tests.SourceGenerators', 'ComputeWeave.D2D1.Tests', 'ComputeWeave.D2D1.Tests.AssemblyLevelAttributes'];
+            const generatorProjects = new Set([
+              'ComputeWeave.SourceGenerators', 'ComputeWeave.D2D1.SourceGenerators', 'ComputeWeave.SourceGeneration',
+              'ComputeWeave.SourceGeneration.Hlsl', 'ComputeWeave.Core.SourceGenerators', 'ComputeWeave.CodeFixing',
+              'ComputeWeave.CodeFixers', 'ComputeWeave.D2D1.CodeFixers',
+            ]);
+
+            // src の下の project 名を採る。README のような文書は数えない。
+            const srcProjects = new Set(paths
+              .filter(p => /^src\/[^/]+\/.+/.test(p) && !isDoc(p))
+              .map(p => p.split('/')[1])
+              .filter(name => Object.hasOwn(suiteMap.projects, name)));
+
+            const anySource = srcProjects.size > 0;
+            const anyGenerator = [...srcProjects].some(name => generatorProjects.has(name));
+
             const suites = new Set();
-            if (runtime || coreLib || dxc || allocator || d3d12Bindings || buildFiles) {
-              computeSuites.forEach(s => suites.add(s));
-            }
-            if (generators || sharedGenerators) {
-              ['ComputeWeave.Tests.SourceGenerators', 'ComputeWeave.Tests.Internals', 'ComputeWeave.Tests'].forEach(s => suites.add(s));
-            }
-            // 共有の生成器層は両側の生成器へ取り込まれ、Direct2D は Core に依存し、その束縛は D3D12 の束縛から18 file を取り込む。
-            if (coreLib || sharedGenerators || d2d1Generators) {
-              direct2dSuites.forEach(s => suites.add(s));
-            }
-            if (d3d12Bindings) suites.add('ComputeWeave.D2D1.Tests');
-            if (d2d1) {
-              ['ComputeWeave.D2D1.Tests', 'ComputeWeave.D2D1.Tests.AssemblyLevelAttributes'].forEach(s => suites.add(s));
-            }
+            if (buildFiles) suiteMap.suites.forEach(s => suites.add(s));
+            for (const name of srcProjects) suiteMap.projects[name].forEach(s => suites.add(s));
+            for (const p of paths) (suiteMap.files[p] || []).forEach(s => suites.add(s));
             if (testsOnly && !anySource) suites.add('変更した該当スイート');
+
+            // 既定の構築ではどの試験 project も参照しない project。触っても勧めるスイートが無いので、その旨を書く。
+            const unbuilt = [...srcProjects].filter(name => suiteMap.projects[name].length === 0);
 
             // 慎重を要する箇所。CONTRIBUTING が名指ししている領域を経路と名前から推定する。
             const guarded = [];
@@ -180,24 +177,31 @@ jobs:
             if (docsOnly) {
               lines.push('文書だけの変更です。**テストの実行は不要**です。該当箇所の確認で足ります。');
               lines.push('Documentation-only change. **Tests are not required**; verify the affected area instead.');
-            } else if (suiteList.length === 0) {
+            } else if (suiteList.length === 0 && unbuilt.length === 0) {
               lines.push('ソースに触れていません。**このPRの内容に応じた確認**で足ります。');
               lines.push('No source touched. Verify whatever this change actually affects.');
             } else {
-              lines.push('以下を走らせ、失敗した試験の**名前と失敗の様子**を変更前と突き合わせてください。総数だけで判断しないでください。');
-              lines.push('Run the following and compare the **names and failure modes** against the same suites before your change. Do not judge by totals alone.');
-              lines.push('');
-              lines.push('```console');
-              lines.push('dotnet build ComputeWeave.sln -c Release -p:Platform=x64');
-              for (const proj of [...computeSuites, ...direct2dSuites]) {
-                if (!suites.has(proj)) continue;
-                lines.push(`dotnet test tests/${proj}/${proj}.csproj -c Release -p:Platform=x64`);
-              }
-              lines.push('```');
-              if (anyGenerator) {
+              if (suiteList.length > 0) {
+                lines.push('以下を走らせ、失敗した試験の**名前と失敗の様子**を変更前と突き合わせてください。総数だけで判断しないでください。');
+                lines.push('Run the following and compare the **names and failure modes** against the same suites before your change. Do not judge by totals alone.');
                 lines.push('');
-                lines.push('ビルドエラーを出す診断を変えた場合は、アナライザーの試験に加えて解全体の検証が要ります。');
-                lines.push('If a diagnostic that produces build errors changed, verify the complete solution as well.');
+                lines.push('```console');
+                lines.push('dotnet build ComputeWeave.sln -c Release -p:Platform=x64');
+                for (const proj of suiteMap.suites) {
+                  if (!suites.has(proj)) continue;
+                  lines.push(`dotnet test tests/${proj}/${proj}.csproj -c Release -p:Platform=x64`);
+                }
+                lines.push('```');
+                if (anyGenerator) {
+                  lines.push('');
+                  lines.push('ビルドエラーを出す診断を変えた場合は、アナライザーの試験に加えて解全体の検証が要ります。');
+                  lines.push('If a diagnostic that produces build errors changed, verify the complete solution as well.');
+                }
+              }
+              for (const name of unbuilt) {
+                if (lines[lines.length - 1] !== '') lines.push('');
+                lines.push(`\`${name}\` は既定の構築ではどの試験 project も参照しません。その参照を有効にした構築で確かめてください。`);
+                lines.push(`No suite references \`${name}\` in the default build; verify with the build that enables that reference.`);
               }
             }
             lines.push('');

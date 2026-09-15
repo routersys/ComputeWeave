@@ -224,7 +224,9 @@ partial class HlslSourceRewriter
     /// type set, which a signed and an unsigned integer in one operation do. That widening cannot be written
     /// into the generated code, so the operands reach the shader compiler as they stand and the operation is
     /// resolved over them instead, where the unsigned kind wins: a comparison answers the other way and an
-    /// arithmetic result wraps at 32 bits, with neither compiler reporting anything.
+    /// arithmetic result wraps at 32 bits, with neither compiler reporting anything. The widening is read from
+    /// the left operand, so a 64 bit literal or constant on that side, being no conversion at all, is not
+    /// reported here: the rewriting tracks its type instead, and the type set refuses it as it does a local.
     /// </para>
     /// <para>
     /// The walk is over the resolved operations rather than the syntax, because an implicit conversion has no
