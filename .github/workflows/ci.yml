@@ -49,6 +49,10 @@ jobs:
         with:
           dotnet-version: "10.x"
 
+      # PR レビューが勧めるスイートの表は project の評価から作った file で、参照が動くと古くなる。作り直して差が無いことを見る。
+      - name: PR レビューのスイートの表を検証
+        run: pwsh build/generate-review-suites.ps1 -Check
+
       - name: NuGet パッケージをキャッシュ
         uses: actions/cache@v4
         with:
