@@ -790,6 +790,27 @@ internal abstract partial class HlslSourceRewriter(
     }
 
     /// <summary>
+    /// Rewrites a call to a method of the shader type to name the method alone.
+    /// </summary>
+    /// <param name="updatedNode">The updated <see cref="InvocationExpressionSyntax"/> instance with tweaked syntax.</param>
+    /// <returns>The invocation, with the qualifier the call was written through dropped.</returns>
+    /// <remarks>
+    /// Both generators write the methods of the shader type out at the top level under their own names, so a
+    /// call qualified with the shader type, with an alias of it or with <see langword="this"/> names something
+    /// the generated HLSL never declares. The name is kept as visited rather than read from the symbol, so a
+    /// method named after an HLSL keyword stays mapped the way its declaration is.
+    /// </remarks>
+    protected static InvocationExpressionSyntax VisitShaderMethodInvocation(InvocationExpressionSyntax updatedNode)
+    {
+        if (updatedNode.Expression is MemberAccessExpressionSyntax qualifiedName)
+        {
+            return updatedNode.WithExpression(qualifiedName.Name);
+        }
+
+        return updatedNode;
+    }
+
+    /// <summary>
     /// Raises the requirements a call to a known HLSL method places on the shader, if it places any.
     /// </summary>
     /// <param name="metadataName">The metadata name of the method being invoked.</param>

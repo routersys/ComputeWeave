@@ -776,6 +776,9 @@ internal sealed partial class ShaderSourceRewriter(
                 // A static method of the shader is left for the generator's own path, so a cycle an
                 // initializer closes through one is answered by walking it (see HlslSourceRewriter)
                 ReportCyclicStaticFieldInitializerThroughShaderMethod(method);
+
+                // The call is written the way the generator writes the method out, under its name alone
+                return VisitShaderMethodInvocation(updatedNode);
             }
             else
             {
@@ -824,6 +827,13 @@ internal sealed partial class ShaderSourceRewriter(
                     }
 
                     return updatedNode;
+                }
+
+                // An instance method of the shader is written out the way a static one is, so a call
+                // through 'this' is renamed the same way
+                if (SymbolEqualityComparer.Default.Equals(ShaderType, method.ContainingType))
+                {
+                    return VisitShaderMethodInvocation(updatedNode);
                 }
             }
         }
