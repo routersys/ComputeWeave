@@ -45,8 +45,8 @@ jobs:
             const buildFiles = touched(/^(global\.json|nuget\.config|.*\.sln$|build\/.*\.(props|targets|snk)$)/) || touched(/(^|\/)Directory\.Build\./);
             const workflows  = touched(/^\.github\/workflows\//);
 
-            // 勧めるスイートの表は build/review-suites.json に在り、build/generate-review-suites.ps1 が project の評価から作る。読むのは土台の枝の file で、PR 側の内容は読まない。
-            const mapFile = await github.rest.repos.getContent({ owner, repo, path: 'build/review-suites.json', ref: pr.base.sha });
+            // 勧めるスイートの表は build/review-suites.json に在り、build/generate-review-suites.ps1 が project の評価から作る。読むのは土台の枝の先端の file で、PR 側の内容は読まない。payload の base.sha は枝が進んでも古いままなので使わない。
+            const mapFile = await github.rest.repos.getContent({ owner, repo, path: 'build/review-suites.json', ref: pr.base.ref });
             const suiteMap = JSON.parse(Buffer.from(mapFile.data.content, 'base64').toString('utf8'));
 
             const generatorProjects = new Set([
