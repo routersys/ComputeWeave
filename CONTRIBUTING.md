@@ -172,7 +172,7 @@ Apply the label that matches each kind you kept in the template. The kinds and t
 
 Opening a pull request triggers an automated check that posts a single comment and keeps it updated. It reads only pull request metadata through the API and never checks out the branch, so a fork's code is never executed with write permissions.
 
-It reports which test suites the changed paths require, which guarded areas were touched, whether implementation and tests share a commit, whether the template sections are filled in, and whether an issue is linked.
+It reports which test suites the changed paths require, which guarded areas were touched, whether implementation and tests share a commit, whether the template sections are filled in, and whether an issue is linked. The suites come from [`build/review-suites.json`](/build/review-suites.json), which [`build/generate-review-suites.ps1`](/build/generate-review-suites.ps1) derives from the projects as MSBuild evaluates them: for each directory under `src`, the test projects that reference it, and for a file one project includes straight out of another, the test projects that reach the including one. CI regenerates the file and fails when a change to the projects has left it behind; running the script and committing the result is part of such a change.
 
 It is not a review, and its findings are input to a decision, not obligations. If a finding does not apply to your change, say so in the thread.
 
