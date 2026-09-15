@@ -27,6 +27,7 @@ namespace ComputeWeave.SourceGeneration.SyntaxRewriters;
 /// <param name="constantDefinitions">The collection of discovered constant definitions.</param>
 /// <param name="staticFieldDefinitions">The collection of discovered static field definitions.</param>
 /// <param name="requirements">The requirements gathered for the shader being rewritten.</param>
+/// <param name="calls">The collection of calls the generated HLSL holds, recorded from the declarations they are written in.</param>
 /// <param name="diagnostics">The collection of produced <see cref="DiagnosticInfo"/> instances.</param>
 /// <param name="token">The <see cref="CancellationToken"/> value for the current operation.</param>
 internal sealed partial class StaticFieldRewriter(
@@ -39,6 +40,7 @@ internal sealed partial class StaticFieldRewriter(
     IDictionary<IFieldSymbol, string> constantDefinitions,
     IDictionary<IFieldSymbol, HlslStaticField> staticFieldDefinitions,
     HlslShaderRequirements requirements,
+    ICollection<HlslCall> calls,
     ImmutableArrayBuilder<DiagnosticInfo> diagnostics,
     CancellationToken token)
     : HlslSourceRewriter(shaderType, semanticModel, discoveredTypes, constantDefinitions, staticFieldDefinitions, requirements, diagnostics, token)
@@ -343,6 +345,7 @@ internal sealed partial class StaticFieldRewriter(
             ConstantDefinitions,
             StaticFieldDefinitions,
             Requirements,
+            calls,
             Diagnostics,
             CancellationToken);
     }

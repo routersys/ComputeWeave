@@ -148,15 +148,15 @@ public class RefusedConstructTests
     /// A shader the rewriter accepts and the HLSL compiler refuses.
     /// </summary>
     /// <remarks>
-    /// Recursion is what the HLSL compiler refuses, and the rewriter has nothing to say about the local
-    /// function carrying it, so a refusal is the only thing that keeps a shader from reaching the compiler.
-    /// Without this row, removing the forwarding outright would leave every row above passing.
+    /// More group shared memory than a group may hold is what the HLSL compiler refuses, and nothing in the
+    /// generator reads that total, so a refusal is the only thing that keeps a shader from reaching the
+    /// compiler. Without this row, removing the forwarding outright would leave every row above passing.
     /// </remarks>
     [TestMethod]
     public void AnInputTheRewriterAcceptsCarriesTheCompilerFailure()
     {
         Diagnostic[] reported = Report(
-            Shader("static int Fib(int n) => n <= 1 ? n : Fib(n - 1) + Fib(n - 2); k += Fib(3);", isUnsafe: false),
+            Shader("cache[ThreadIds.X] = 1; k += (int)cache[ThreadIds.X];", isUnsafe: false, GroupSharedOverTheLimit),
             "ShaderAcceptedCompilerFailureTests");
 
         Assert.AreEqual("CMPW0046", Ids(reported));
@@ -166,8 +166,8 @@ public class RefusedConstructTests
     /// A shader carrying syntax the accepted set does not cover.
     /// </summary>
     /// <remarks>
-    /// The report refuses the input, so the shader never reaches the HLSL compiler. The body carries recursion,
-    /// which HLSL cannot express under any profile, so the compiler would answer for it were it handed the
+    /// The report refuses the input, so the shader never reaches the HLSL compiler. The shader declares more
+    /// group shared memory than a group may hold, so the compiler would answer for it were it handed the
     /// shader: what the row reads is the refusal arriving alone, and not a body the compiler happens to accept.
     /// </remarks>
     [TestMethod]
@@ -182,11 +182,12 @@ public class RefusedConstructTests
 
                 done: v += 1;
 
-                static int Fib(int n) => n <= 1 ? n : Fib(n - 1) + Fib(n - 2);
+                cache[ThreadIds.X] = v;
 
-                k += Fib(3) + (int)v;
+                k += (int)cache[ThreadIds.X];
                 """,
-                isUnsafe: false),
+                isUnsafe: false,
+                GroupSharedOverTheLimit),
             "ShaderReportedRefusalTests");
 
         Assert.AreEqual("CMPW0121", Ids(reported));
@@ -310,12 +311,21 @@ public class RefusedConstructTests
     }
 
     /// <summary>
+    /// A group shared field larger than a group may hold, which the HLSL compiler refuses and nothing in the generator reads.
+    /// </summary>
+    private const string GroupSharedOverTheLimit = """
+        [GroupShared(16384)]
+            private static readonly float[] cache;
+        """;
+
+    /// <summary>
     /// Builds a shader around a body.
     /// </summary>
     /// <param name="body">The statements to put in the shader body.</param>
     /// <param name="isUnsafe">Whether the entry point needs an unsafe context.</param>
+    /// <param name="members">The members to declare beside the entry point, if any.</param>
     /// <returns>The source of a shader carrying <paramref name="body"/>.</returns>
-    private static string Shader(string body, bool isUnsafe)
+    private static string Shader(string body, bool isUnsafe, string members = "")
     {
         return $$"""
             using System.Linq;
@@ -328,6 +338,8 @@ public class RefusedConstructTests
             internal readonly partial struct Shader : IComputeShader
             {
                 private readonly ReadWriteBuffer<float> buffer;
+
+                {{members}}
 
                 public {{(isUnsafe ? "unsafe " : "")}}void Execute()
                 {
