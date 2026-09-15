@@ -55,6 +55,7 @@ internal static class HlslDefinitionsSyntaxProcessor
     /// <param name="constantDefinitions">The collection of discovered constant definitions.</param>
     /// <param name="staticFieldDefinitions">The collection of discovered static field definitions.</param>
     /// <param name="requirements">The requirements gathered for the shader being rewritten.</param>
+    /// <param name="calls">The collection of calls the generated HLSL holds, recorded from the declarations they are written in.</param>
     /// <param name="diagnostics">The collection of produced <see cref="DiagnosticInfo"/> instances.</param>
     /// <param name="token">The <see cref="CancellationToken"/> used to cancel the operation, if needed.</param>
     /// <param name="name">The mapped name for the field.</param>
@@ -73,6 +74,7 @@ internal static class HlslDefinitionsSyntaxProcessor
         IDictionary<IFieldSymbol, string> constantDefinitions,
         IDictionary<IFieldSymbol, HlslStaticField> staticFieldDefinitions,
         HlslShaderRequirements requirements,
+        ICollection<HlslCall> calls,
         ImmutableArrayBuilder<DiagnosticInfo> diagnostics,
         CancellationToken token,
         [NotNullWhen(true)] out string? name,
@@ -143,6 +145,7 @@ internal static class HlslDefinitionsSyntaxProcessor
             constantDefinitions,
             staticFieldDefinitions,
             requirements,
+            calls,
             diagnostics,
             token);
 
@@ -328,6 +331,80 @@ internal static class HlslDefinitionsSyntaxProcessor
             if (memberSymbol is IFieldSymbol { AssociatedSymbol: IPropertySymbol associatedProperty })
             {
                 diagnostics.Add(InvalidPropertyDeclaration, associatedProperty, structDeclarationSymbol, associatedProperty);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Reports every call that leads back to the declaration it is written in.
+    /// </summary>
+    /// <param name="diagnostics">The collection of produced <see cref="DiagnosticInfo"/> instances.</param>
+    /// <param name="calls">The collection of calls the generated HLSL holds, recorded from the declarations they are written in.</param>
+    /// <remarks>
+    /// <para>
+    /// HLSL has no recursion, so the shader compiler refuses a function that reaches itself through the
+    /// functions it calls. Whether a call does is a property of every declaration the generated HLSL holds,
+    /// so this runs once every declaration is rewritten, over the calls each rewriting recorded: a method
+    /// of the shader, a method or constructor of another type the shader reaches, and a local function are
+    /// all written out as functions, a local function whether or not it is called.
+    /// </para>
+    /// <para>
+    /// Every call on a cycle is reported, at the call as the author wrote it, so a cycle through two
+    /// declarations names both of the calls closing it and either one can be the one removed.
+    /// </para>
+    /// </remarks>
+    public static void ReportRecursiveCalls(ImmutableArrayBuilder<DiagnosticInfo> diagnostics, IReadOnlyCollection<HlslCall> calls)
+    {
+        Dictionary<IMethodSymbol, List<IMethodSymbol>> callees = new(SymbolEqualityComparer.Default);
+
+        foreach ((IMethodSymbol caller, IMethodSymbol callee, _) in calls)
+        {
+            if (!callees.TryGetValue(caller, out List<IMethodSymbol>? targets))
+            {
+                targets = [];
+
+                callees.Add(caller, targets);
+            }
+
+            targets.Add(callee);
+        }
+
+        // The declarations a call leads to, following the calls those hold in turn
+        Dictionary<IMethodSymbol, HashSet<IMethodSymbol>> reachable = new(SymbolEqualityComparer.Default);
+
+        HashSet<IMethodSymbol> GetReachable(IMethodSymbol callee)
+        {
+            if (!reachable.TryGetValue(callee, out HashSet<IMethodSymbol>? reached))
+            {
+                reached = new(SymbolEqualityComparer.Default);
+
+                Stack<IMethodSymbol> pending = new([callee]);
+
+                while (pending.Count > 0)
+                {
+                    if (callees.TryGetValue(pending.Pop(), out List<IMethodSymbol>? next))
+                    {
+                        foreach (IMethodSymbol declaration in next)
+                        {
+                            if (reached.Add(declaration))
+                            {
+                                pending.Push(declaration);
+                            }
+                        }
+                    }
+                }
+
+                reachable.Add(callee, reached);
+            }
+
+            return reached;
+        }
+
+        foreach ((IMethodSymbol caller, IMethodSymbol callee, SyntaxNode site) in calls)
+        {
+            if (GetReachable(callee).Contains(caller))
+            {
+                diagnostics.Add(RecursiveCall, site, callee, caller);
             }
         }
     }

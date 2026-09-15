@@ -14,3 +14,7 @@ global using HlslResourceTextureField = (string Name, string Type, int Index);
 global using HlslStaticField = (string Name, string? TypeDeclaration, string? Assignment, int Order);
 global using HlslSharedBuffer = (string Name, string Type, int? Count);
 global using HlslMethod = (string Signature, string Declaration);
+
+// A call the generated HLSL holds, from the declaration it is written in to the one it resolves to,
+// with the call as the author wrote it. Every rewriter for one shader records into the same collection
+global using HlslCall = (Microsoft.CodeAnalysis.IMethodSymbol Caller, Microsoft.CodeAnalysis.IMethodSymbol Callee, Microsoft.CodeAnalysis.SyntaxNode Site);

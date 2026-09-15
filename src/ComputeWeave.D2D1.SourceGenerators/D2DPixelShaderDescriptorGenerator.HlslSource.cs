@@ -75,6 +75,10 @@ partial class D2DPixelShaderDescriptorGenerator
             // is read here whichever declaration it was found in and however that declaration was reached
             HlslShaderRequirements requirements = new();
 
+            // Every rewriter records the calls it writes out into this one collection, so a call leading back
+            // to the declaration it is written in is read here once every declaration is rewritten
+            List<HlslCall> calls = [];
+
             // Explore the syntax tree and extract the processed info
             (string entryPoint, ImmutableArray<HlslMethod> processedMethods) = GetProcessedMethods(
                 diagnostics,
@@ -88,6 +92,7 @@ partial class D2DPixelShaderDescriptorGenerator
                 constantDefinitions,
                 staticFieldDefinitions,
                 requirements,
+                calls,
                 token);
 
             token.ThrowIfCancellationRequested();
@@ -105,8 +110,15 @@ partial class D2DPixelShaderDescriptorGenerator
                 constantDefinitions,
                 staticFieldDefinitions,
                 requirements,
+                calls,
                 initializerLocalFunctions,
                 token);
+
+            token.ThrowIfCancellationRequested();
+
+            // HLSL has no recursion, and whether a call leads back is a property of every declaration the
+            // generated HLSL holds, so the calls are read once every declaration is rewritten
+            HlslDefinitionsSyntaxProcessor.ReportRecursiveCalls(diagnostics, calls);
 
             token.ThrowIfCancellationRequested();
 
@@ -314,6 +326,7 @@ partial class D2DPixelShaderDescriptorGenerator
         /// <param name="constantDefinitions">The collection of discovered constant definitions.</param>
         /// <param name="staticFieldDefinitions">The collection of discovered static field definitions.</param>
         /// <param name="requirements">The requirements gathered for the shader being rewritten.</param>
+        /// <param name="calls">The collection of calls the generated HLSL holds, recorded from the declarations they are written in.</param>
         /// <param name="localFunctions">The collection to receive the local functions lifted out of imported methods.</param>
         /// <param name="token">The <see cref="CancellationToken"/> used to cancel the operation, if needed.</param>
         /// <returns>A sequence of static constant fields in <paramref name="structDeclarationSymbol"/>.</returns>
@@ -328,6 +341,7 @@ partial class D2DPixelShaderDescriptorGenerator
             IDictionary<IFieldSymbol, string> constantDefinitions,
             IDictionary<IFieldSymbol, HlslStaticField> staticFieldDefinitions,
             HlslShaderRequirements requirements,
+            ICollection<HlslCall> calls,
             IDictionary<IMethodSymbol, LocalFunctionStatementSyntax> localFunctions,
             CancellationToken token)
         {
@@ -351,6 +365,7 @@ partial class D2DPixelShaderDescriptorGenerator
                     constantDefinitions,
                     staticFieldDefinitions,
                     requirements,
+                    calls,
                     diagnostics,
                     token,
                     out string? name,
@@ -393,6 +408,7 @@ partial class D2DPixelShaderDescriptorGenerator
         /// <param name="constantDefinitions">The collection of discovered constant definitions.</param>
         /// <param name="staticFieldDefinitions">The collection of discovered static field definitions.</param>
         /// <param name="requirements">The requirements gathered for the shader being rewritten.</param>
+        /// <param name="calls">The collection of calls the generated HLSL holds, recorded from the declarations they are written in.</param>
         /// <param name="token">The <see cref="CancellationToken"/> used to cancel the operation, if needed.</param>
         /// <returns>A sequence of processed methods in <paramref name="structDeclarationSymbol"/>, and the entry point.</returns>
         private static (string EntryPoint, ImmutableArray<HlslMethod> Methods) GetProcessedMethods(
@@ -407,6 +423,7 @@ partial class D2DPixelShaderDescriptorGenerator
             IDictionary<IFieldSymbol, string> constantDefinitions,
             IDictionary<IFieldSymbol, HlslStaticField> staticFieldDefinitions,
             HlslShaderRequirements requirements,
+            ICollection<HlslCall> calls,
             CancellationToken token)
         {
             using ImmutableArrayBuilder<HlslMethod> methods = new();
@@ -453,6 +470,7 @@ partial class D2DPixelShaderDescriptorGenerator
                     constantDefinitions,
                     staticFieldDefinitions,
                     requirements,
+                    calls,
                     diagnostics,
                     token,
                     isShaderEntryPoint);
