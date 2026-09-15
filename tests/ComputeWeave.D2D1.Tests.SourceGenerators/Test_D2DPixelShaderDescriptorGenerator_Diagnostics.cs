@@ -1220,6 +1220,51 @@ public class Test_D2DPixelShaderDescriptorGenerator_Diagnostics
     }
 
     /// <summary>
+    /// A static field of another type that its static constructor assigns, read by the shader. C# runs the
+    /// constructor when the type is first touched, whereas the generated HLSL runs none and reads zero.
+    /// </summary>
+    /// <remarks>
+    /// The walk is shared with the compute generator, and each of the two carries the descriptor under its own
+    /// identifier, so a row on one of them says nothing about the other.
+    /// </remarks>
+    [TestMethod]
+    public void AStaticFieldAssignedByAStaticConstructorIsDiagnosed()
+    {
+        const string source = """
+            using ComputeWeave;
+            using ComputeWeave.D2D1;
+            using float4 = global::ComputeWeave.Float4;
+
+            namespace MyNamespace;
+
+            internal static class Helper
+            {
+                public static readonly float Amount;
+
+                static Helper()
+                {
+                    Amount = 5.0f;
+                }
+            }
+
+            [D2DInputCount(0)]
+            [D2DShaderProfile(D2D1ShaderProfile.PixelShader50)]
+            [D2DGeneratedPixelShaderDescriptor]
+            internal readonly partial struct MyShader : ID2D1PixelShader
+            {
+                private static readonly float Value = Helper.Amount;
+
+                public float4 Execute()
+                {
+                    return Value;
+                }
+            }
+            """;
+
+        CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnosticIsReported(source, "CMPWD2D0102");
+    }
+
+    /// <summary>
     /// A static method of the shader reading a static field of it, reached from the body rather than from that
     /// field's initializer, which is the ordinary shape the walk answering the rows above runs over.
     /// </summary>
