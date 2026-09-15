@@ -38,6 +38,16 @@ public class RecursiveCallTests
         "this.buffer[0] = Twice(2.0f);",
         new[] { "Twice(value)" })]
     [DataRow(
+        "RecursiveEntryPointTests",
+        "",
+        "",
+        """
+        Execute();
+
+                    this.buffer[0] = 1.0f;
+        """,
+        new[] { "Execute()" })]
+    [DataRow(
         "MutuallyRecursiveMethodsOfTheShaderTests",
         "",
         """
