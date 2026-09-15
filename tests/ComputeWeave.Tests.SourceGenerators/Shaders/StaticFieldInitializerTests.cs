@@ -637,8 +637,8 @@ public class StaticFieldInitializerTests
     }
 
     /// <summary>
-    /// A read that closes a cycle is answered by the report the import already carries, rather than by the
-    /// fault that claiming the entry exists to stop.
+    /// A read that closes a cycle is answered by a report rather than by the fault that claiming the entry
+    /// exists to stop, the import writing the read out under the claimed name and the walk reporting it.
     /// </summary>
     [TestMethod]
     public void AReadThatClosesACycleIsReported()

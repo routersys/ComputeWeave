@@ -373,6 +373,15 @@ partial class D2DPixelShaderDescriptorGenerator
                 }
             }
 
+            // An access C# performs before the field's initializer has run is reported once every initializer
+            // is rewritten (same as in the DX12 generator)
+            HlslDefinitionsSyntaxProcessor.ReportStaticFieldAccessesBeforeInitialization(
+                structDeclarationSymbol,
+                staticFieldDefinitions,
+                semanticModel,
+                diagnostics,
+                token);
+
             // One sequence ordered by when each field finished (same as in the DX12 generator)
             HlslStaticField[] fields = [.. declared.WrittenSpan, .. staticFieldDefinitions.Values];
 
