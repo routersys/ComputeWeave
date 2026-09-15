@@ -1553,4 +1553,24 @@ partial class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "HLSL needs a custom type declared ahead of every declaration naming it, and the generated HLSL declares the custom types in an order that satisfies the fields and the member method prototypes each of them holds. A field cannot name a type declared later, as C# reports a cycle through fields, so an order always exists for fields alone. Member signatures can name each other in a cycle, and then no order puts every type ahead of the prototypes naming it. The compute generator resolves that with a type forward declaration, which DXC accepts, but FXC has no such declaration, so a pixel shader with such a cycle would be written into HLSL that cannot build, and the failure would name generated code the author never wrote. The member reported is the prototype read before the type it names is declared; moving it out of its type, for instance into a static method taking both types, removes the cycle.",
         helpLinkUri: "https://github.com/routersys/ComputeWeave");
+
+    /// <summary>
+    /// Gets a <see cref="DiagnosticDescriptor"/> for a call leading back to the declaration it is written in.
+    /// <para>
+    /// Format: <c>"The call to {0} cannot be used in a D2D1 pixel shader (it leads back to {1}, the declaration it is written in, and HLSL has no recursion)"</c>.
+    /// </para>
+    /// </summary>
+    /// <remarks>
+    /// This is the Direct2D counterpart of the compute diagnostic. The rewriting that records the calls is
+    /// shared, so leaving one of the two out would refuse the same call on one path and not the other.
+    /// </remarks>
+    public static readonly DiagnosticDescriptor RecursiveCall = new(
+        id: "CMPWD2D0101",
+        title: "Recursive call",
+        messageFormat: "The call to {0} cannot be used in a D2D1 pixel shader (it leads back to {1}, the declaration it is written in, and HLSL has no recursion)",
+        category: "ComputeWeave.D2D1.Shaders",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "HLSL has no recursion, so the shader compiler refuses a function that reaches itself through the functions it calls. Without this the call is written out as it stands and the shader compiler answers at the shader type, naming the function in the generated HLSL, which for a local function or a method of a custom type is a name the generator gave it. What is reported is every call on a cycle, at the call as the author wrote it, so a cycle through two declarations is reported at both of the calls closing it and removing either one resolves both. The calls followed are the ones the generated HLSL holds: a method of the shader, a method or constructor of another type the shader reaches, and a local function, which is written out whether or not it is called.",
+        helpLinkUri: "https://github.com/routersys/ComputeWeave");
 }

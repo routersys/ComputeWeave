@@ -57,6 +57,7 @@ public class Test_D2DPixelShaderDescriptorGenerator_DiagnosticLocations
         }
         """;
 
+    // A thread synchronization is what the pixel shader profile refuses, and the rewriter maps it like any intrinsic
     private const string CompilerRefusedSource = """
         using ComputeWeave;
         using ComputeWeave.D2D1;
@@ -73,9 +74,9 @@ public class Test_D2DPixelShaderDescriptorGenerator_DiagnosticLocations
 
             public float4 Execute()
             {
-                static int Fib(int n) => n <= 1 ? n : Fib(n - 1) + Fib(n - 2);
+                Hlsl.GroupMemoryBarrierWithGroupSync();
 
-                return time + Fib(3);
+                return time;
             }
         }
         """;

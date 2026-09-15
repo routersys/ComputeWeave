@@ -1719,4 +1719,20 @@ partial class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "What is written into the generated HLSL is built from the body of the declaration, so one that carries none has nothing to write. An extern declaration is that case, and C# reports only a warning for it. Without this a method or a local function is written out as a declaration with no body and the shader compiler answers by naming generated code the author never wrote, while a constructor and the entry point end the generator instead, which discards the descriptors for every shader in the compilation unit. What is reported follows what is written out: a member of an external type is written out where the shader reaches it, and one it never reaches is left alone. A declaration split into parts is unaffected, the implementing part being the one that is read.",
         helpLinkUri: "https://github.com/routersys/ComputeWeave");
+
+    /// <summary>
+    /// Gets a <see cref="DiagnosticDescriptor"/> for a call leading back to the declaration it is written in.
+    /// <para>
+    /// Format: <c>"The call to {0} cannot be used in a compute shader (it leads back to {1}, the declaration it is written in, and HLSL has no recursion)"</c>.
+    /// </para>
+    /// </summary>
+    public static readonly DiagnosticDescriptor RecursiveCall = new(
+        id: "CMPW0129",
+        title: "Recursive call",
+        messageFormat: "The call to {0} cannot be used in a compute shader (it leads back to {1}, the declaration it is written in, and HLSL has no recursion)",
+        category: "ComputeWeave.Shaders",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "HLSL has no recursion, so the shader compiler refuses a function that reaches itself through the functions it calls. Without this the call is written out as it stands and the shader compiler answers at the shader type, naming the function in the generated HLSL, which for a local function or a method of a custom type is a name the generator gave it. What is reported is every call on a cycle, at the call as the author wrote it, so a cycle through two declarations is reported at both of the calls closing it and removing either one resolves both. The calls followed are the ones the generated HLSL holds: a method of the shader, a method or constructor of another type the shader reaches, and a local function, which is written out whether or not it is called.",
+        helpLinkUri: "https://github.com/routersys/ComputeWeave");
 }
