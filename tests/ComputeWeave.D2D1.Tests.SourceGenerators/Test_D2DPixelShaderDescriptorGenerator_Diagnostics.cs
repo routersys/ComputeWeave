@@ -258,6 +258,41 @@ public class Test_D2DPixelShaderDescriptorGenerator_Diagnostics
     }
 
     /// <summary>
+    /// A native integer constant, whose value is boxed as a 32 bit one while C# computes with it at the width of
+    /// the platform, so it is told by its type.
+    /// </summary>
+    [TestMethod]
+    public void ANativeIntegerConstantIsDiagnosed()
+    {
+        const string source = """
+            using ComputeWeave;
+            using ComputeWeave.D2D1;
+            using float4 = global::ComputeWeave.Float4;
+
+            namespace MyNamespace;
+
+            [D2DInputCount(0)]
+            [D2DShaderProfile(D2D1ShaderProfile.PixelShader50)]
+            [D2DGeneratedPixelShaderDescriptor]
+            internal readonly partial struct MyShader : ID2D1PixelShader
+            {
+                private const nint Native = 5;
+
+                private readonly int signed;
+
+                public float4 Execute()
+                {
+                    float value = (float)(Native + this.signed);
+
+                    return value;
+                }
+            }
+            """;
+
+        CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnostics(source, "CMPWD2D0041");
+    }
+
+    /// <summary>
     /// An indexer declared on a custom type. The rewriters are shared with the compute generator, so what
     /// this pins is that the pixel shader generator answers with its own identifier.
     /// </summary>
