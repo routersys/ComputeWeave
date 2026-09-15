@@ -1,5 +1,8 @@
+using System.Collections.Immutable;
+using System.Linq;
 using ComputeWeave.D2D1.SourceGenerators;
 using ComputeWeave.Tests.SourceGenerators.Helpers;
+using Microsoft.CodeAnalysis;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace ComputeWeave.D2D1.Tests.SourceGenerators;
@@ -1476,5 +1479,123 @@ public class Test_D2DPixelShaderDescriptorGenerator_Diagnostics
             """;
 
         CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnostics(source, "CMPWD2D0041");
+    }
+
+    /// <summary>
+    /// A method calling itself, which HLSL has no way to write. Before this the shader compiler refused the
+    /// generated HLSL at the shader type, and for a local function or a method of a custom type it named a
+    /// function the generator gave its name to.
+    /// </summary>
+    /// <remarks>
+    /// The rewriting that records the calls is shared with the compute generator, and each of the two carries
+    /// its own identifier, so a row on one of them says nothing about the other. The shapes a cycle can close
+    /// through are measured on the compute side, the rows here answering for the identifier and for the report
+    /// landing on the call as the author wrote it.
+    /// </remarks>
+    [TestMethod]
+    public void ARecursiveMethodIsDiagnosed()
+    {
+        const string source = """
+            using ComputeWeave;
+            using ComputeWeave.D2D1;
+            using float4 = global::ComputeWeave.Float4;
+
+            namespace MyNamespace;
+
+            [D2DInputCount(0)]
+            [D2DShaderProfile(D2D1ShaderProfile.PixelShader50)]
+            [D2DGeneratedPixelShaderDescriptor]
+            internal readonly partial struct MyShader : ID2D1PixelShader
+            {
+                private readonly float time;
+
+                private static float Twice(float value) => Twice(value) * 2;
+
+                public float4 Execute()
+                {
+                    return Twice(this.time);
+                }
+            }
+            """;
+
+        CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnostics(source, "CMPWD2D0101");
+    }
+
+    /// <summary>
+    /// A local function calling itself. The generated HLSL holds it under a name the generator gave it, so
+    /// this is the row for the report naming what the author wrote and landing on the call.
+    /// </summary>
+    [TestMethod]
+    public void ARecursiveLocalFunctionIsDiagnosedAtTheCall()
+    {
+        const string source = """
+            using ComputeWeave;
+            using ComputeWeave.D2D1;
+            using float4 = global::ComputeWeave.Float4;
+
+            namespace MyNamespace;
+
+            [D2DInputCount(0)]
+            [D2DShaderProfile(D2D1ShaderProfile.PixelShader50)]
+            [D2DGeneratedPixelShaderDescriptor]
+            internal readonly partial struct MyShader : ID2D1PixelShader
+            {
+                private readonly float time;
+
+                public float4 Execute()
+                {
+                    static float Twice(float value) => Twice(value) * 2;
+
+                    return Twice(this.time);
+                }
+            }
+            """;
+
+        Diagnostic diagnostic = CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.GetReportedDiagnostics(source).Single();
+        string message = diagnostic.GetMessage();
+
+        Assert.AreEqual("CMPWD2D0101", diagnostic.Id);
+        Assert.AreEqual("Twice(value)", diagnostic.Location.SourceTree!.GetText().ToString(diagnostic.Location.SourceSpan));
+        Assert.IsTrue(message.Contains("Twice(float)"), message);
+        Assert.IsFalse(message.Contains("__"), message);
+    }
+
+    /// <summary>
+    /// Two methods calling each other, reported at both of the calls closing the cycle.
+    /// </summary>
+    [TestMethod]
+    public void MutuallyRecursiveMethodsAreDiagnosedAtBothCalls()
+    {
+        const string source = """
+            using ComputeWeave;
+            using ComputeWeave.D2D1;
+            using float4 = global::ComputeWeave.Float4;
+
+            namespace MyNamespace;
+
+            [D2DInputCount(0)]
+            [D2DShaderProfile(D2D1ShaderProfile.PixelShader50)]
+            [D2DGeneratedPixelShaderDescriptor]
+            internal readonly partial struct MyShader : ID2D1PixelShader
+            {
+                private readonly float time;
+
+                private static float Even(float value) => Odd(value);
+
+                private static float Odd(float value) => Even(value);
+
+                public float4 Execute()
+                {
+                    return Even(this.time);
+                }
+            }
+            """;
+
+        ImmutableArray<Diagnostic> diagnostics = CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.GetReportedDiagnostics(source);
+
+        Assert.IsTrue(diagnostics.All(static diagnostic => diagnostic.Id == "CMPWD2D0101"), string.Join(", ", diagnostics.Select(static diagnostic => diagnostic.Id)));
+        CollectionAssert.AreEqual(
+            new[] { "Even(value)", "Odd(value)" },
+            diagnostics.Select(static diagnostic => diagnostic.Location.SourceTree!.GetText().ToString(diagnostic.Location.SourceSpan)).Order().ToArray());
     }
 }
