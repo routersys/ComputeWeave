@@ -520,18 +520,12 @@ internal abstract partial class HlslSourceRewriter(
         // and member access expressions, as those will be handled separately. Doing so avoids unnecessarily
         // retrieving semantic information for every identifier, which would otherwise be fairly expensive.
         if (node.Parent is not (InvocationExpressionSyntax or MemberAccessExpressionSyntax) &&
-            SemanticModel.For(node).GetOperation(node, CancellationToken) is IFieldReferenceOperation operation)
+            SemanticModel.For(node).GetOperation(node, CancellationToken) is IFieldReferenceOperation operation &&
+            operation.Field.IsConst &&
+            operation.Type!.TypeKind != TypeKind.Enum &&
+            TryRewriteConstantReference(operation.Field, out IdentifierNameSyntax? constantName))
         {
-            if (operation.Field.IsConst &&
-                operation.Type!.TypeKind != TypeKind.Enum &&
-                TryRewriteConstantReference(operation.Field, out IdentifierNameSyntax? constantName))
-            {
-                return constantName;
-            }
-
-            // A field of the shader written by its name alone reaches no other reporting site: the rewriter for
-            // the body leaves it to this one, and the rewriter for an initializer maps constants alone
-            ReportCyclicStaticFieldInitializer(node, operation.Field);
+            return constantName;
         }
 
         return updatedNode;
@@ -595,12 +589,12 @@ internal abstract partial class HlslSourceRewriter(
     /// <param name="constantName">The name of the HLSL definition, if the constant can be written as one.</param>
     /// <returns>Whether <paramref name="field"/> can be written as an HLSL definition.</returns>
     /// <remarks>
-    /// A constant whose value has no HLSL literal is refused by tracking its type instead, the way a local of
-    /// that type is: the shader compiler reads a 64 bit integer as a 32 bit one, and a string has no HLSL form.
+    /// A constant with no HLSL literal is refused by tracking its type instead, the way a local of that type is:
+    /// the shader compiler reads a 64 bit integer as a 32 bit one, and a string has no HLSL form.
     /// </remarks>
     protected bool TryRewriteConstantReference(IFieldSymbol field, [NotNullWhen(true)] out IdentifierNameSyntax? constantName)
     {
-        if (!TryGetConstantLiteral(field.ConstantValue, out string? constantLiteral))
+        if (!TryGetConstantLiteral(field.Type, field.ConstantValue, out string? constantLiteral))
         {
             _ = TrackType(field.Type);
 
@@ -618,8 +612,29 @@ internal abstract partial class HlslSourceRewriter(
         return true;
     }
 
-    protected static unsafe bool TryGetConstantLiteral(object? value, out string? literal)
+    /// <summary>
+    /// Gets the HLSL literal a constant is written as, if its type and value have one.
+    /// </summary>
+    /// <param name="type">The type of the constant.</param>
+    /// <param name="value">The value of the constant.</param>
+    /// <param name="literal">The resulting HLSL literal, if the constant has one.</param>
+    /// <returns>Whether the constant has an HLSL literal.</returns>
+    /// <remarks>
+    /// The shader compiler reads the digits of an integer as a 32 bit value, so a 64 bit integer has no literal,
+    /// and neither has a native integer, which C# computes with at the width of the platform. The former is told
+    /// by its value and the latter by its type, since the value of a native integer constant is boxed as a 32 bit
+    /// one. A string has no HLSL form at all.
+    /// </remarks>
+    protected static unsafe bool TryGetConstantLiteral(ITypeSymbol type, object? value, out string? literal)
     {
+        // The value of a native integer constant is boxed as a 32 bit one, so its type is what tells it apart
+        if (type.IsNativeIntegerType)
+        {
+            literal = null;
+
+            return false;
+        }
+
         if (value is bool flag)
         {
             literal = flag ? "true" : "false";

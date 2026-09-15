@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Text.RegularExpressions;
 using ComputeWeave.SourceGenerators;
 using ComputeWeave.Tests.SourceGenerators.Helpers;
 using Microsoft.CodeAnalysis;
@@ -385,7 +386,8 @@ public class ShaderGeneratorDiagnosticTests
     /// <remarks>
     /// A field of the shader is reached on paths of its own: neither rewriter imports the shader's own
     /// declarations, and the generator writes its static methods out before it rewrites any initializer, so
-    /// there is a row per way the read can be written and per kind of declaration the initializer reaches.
+    /// there is a row per way the read can be written and per kind of declaration the initializer reaches. The
+    /// last row reaches it through a constructor, which the walk follows the way it follows a method.
     /// </remarks>
     [TestMethod]
     [DataRow(
@@ -443,9 +445,8 @@ public class ShaderGeneratorDiagnosticTests
     /// </summary>
     /// <remarks>
     /// The read is written as a member access on the shader type, that being the only name an external
-    /// declaration can reach the field by. The two rows are different reporting sites: the rewriter for a body
-    /// answers the first as it rewrites the import, and the walk answers the second, the shader's own method
-    /// not being imported by either rewriter.
+    /// declaration can reach the field by. The second row passes back through a static method of the shader,
+    /// which is never imported, so the walk over what the initializer reaches is the only thing that sees it.
     /// </remarks>
     [TestMethod]
     [DataRow(
@@ -491,10 +492,9 @@ public class ShaderGeneratorDiagnosticTests
     /// that the method calls. The second row imports that declaration from the initializer as well.
     /// </summary>
     /// <remarks>
-    /// The shader's own method is written out before any field is claimed, so the call it makes is rewritten
-    /// while nothing is claimed and reports nothing. The second row is what a claim alone cannot answer: the
-    /// initializer imports the same declaration, and an import is rewritten once, so by the time the claim is
-    /// taken the read that closes the cycle has already been written out.
+    /// The shader's own method is written out before any initializer is rewritten, and the declaration of the
+    /// other type is imported once, from that method, so the read closing the cycle passes through no rewriting
+    /// of the initializer on either row: only a walk over what the initializer reaches sees it.
     /// </remarks>
     [TestMethod]
     [DataRow(
@@ -524,16 +524,15 @@ public class ShaderGeneratorDiagnosticTests
     }
 
     /// <summary>
-    /// A cycle two or more fields close between their initializers, the first reaching the second through a
-    /// static method of the shader and the second reading the first back.
+    /// Two or more fields of the shader whose initializers reach each other, the first reaching the second
+    /// through a static method of the shader and the second reading the first back.
     /// </summary>
     /// <remarks>
-    /// Only the field being initialized is claimed, so the read of the second field reports nothing and the
-    /// initializer of that field is what has to be walked to reach the read that closes the cycle. These are
-    /// the shapes the shader compiler accepts: the read of a field declared later goes through a function,
-    /// which is forward declared, where reading it directly does not. The last row leaves the shader type,
-    /// where nothing claims the field whose initializer closes the cycle, that initializer having been
-    /// written out before the claim on the field being read.
+    /// C# runs the first initializer to completion before the second one starts, so what it reads through the
+    /// method is the second field before its initializer has run, and that read is the one report: the second
+    /// initializer then reads a field whose initializer has already run. These are the shapes the shader
+    /// compiler accepts: the read of a field declared later goes through a function, which is forward declared,
+    /// where reading it directly does not, so nothing but this report tells the author.
     /// </remarks>
     [TestMethod]
     [DataRow(
@@ -568,22 +567,36 @@ public class ShaderGeneratorDiagnosticTests
 
             private static float Second() => Other * 2;
         """)]
-    [DataRow(
-        "ShaderStaticFieldCycleThroughAnImportedFieldTests",
-        """
-        internal static class Helper
-        {
-            public static readonly float Amount = Shader.First * 2;
-        }
-        """,
-        """
-        internal static readonly float First = Twice();
-
-            internal static float Twice() => Helper.Amount;
-        """)]
     public void AStaticFieldOfTheShaderReachedThroughAnotherFieldIsDiagnosed(string assemblyName, string declarations, string members)
     {
         AssertReportsAt(ShaderWithStaticFields(members, "this.buffer[0] = First;", declarations), assemblyName, "CMPW0124", 1);
+    }
+
+    /// <summary>
+    /// A field of the shader and a field of another type whose initializers reach each other.
+    /// </summary>
+    /// <remarks>
+    /// Whichever type C# initializes first, its initializer starts the other one and reads its own field back
+    /// through it before that initializer has run, so each of the two reads is the read a run of the program
+    /// performs too early, and both are reported. Neither of the two is the shape one type can fix alone.
+    /// </remarks>
+    [TestMethod]
+    public void AStaticFieldOfTheShaderAndAnImportedFieldReachingEachOtherAreDiagnosed()
+    {
+        const string Declarations = """
+            internal static class Helper
+            {
+                public static readonly float Amount = Shader.First * 2;
+            }
+            """;
+
+        const string Members = """
+            internal static readonly float First = Twice();
+
+                internal static float Twice() => Helper.Amount;
+            """;
+
+        AssertReportsAt(ShaderWithStaticFields(Members, "this.buffer[0] = First;", Declarations), "ShaderStaticFieldCycleThroughAnImportedFieldTests", "CMPW0124", 2);
     }
 
     /// <summary>
@@ -591,10 +604,7 @@ public class ShaderGeneratorDiagnosticTests
     /// and once through a static method of the shader that reads it back.
     /// </summary>
     /// <remarks>
-    /// The two reads are answered by different sites, the one in the initializer as it is rewritten and the
-    /// one in the method by the walk, and each is a place the author has to change. The walk does not reach
-    /// the first a second time: the field whose initializer it would walk into is the one being initialized,
-    /// which it leaves to the rewriting it was entered from.
+    /// Each read is a place the author has to change, so each is reported, and at a location of its own.
     /// </remarks>
     [TestMethod]
     public void AStaticFieldOfTheShaderReachingItselfTwiceIsDiagnosedAtEachRead()
@@ -609,16 +619,17 @@ public class ShaderGeneratorDiagnosticTests
     }
 
     /// <summary>
-    /// Two fields the walk reaches whose initializers read each other. Neither is the field being
-    /// initialized, so neither closes a cycle on it, and the walk has to stop rather than follow them round.
+    /// A field reaching a pair of fields whose initializers read each other. C# runs the three initializers in
+    /// order, so the first reads the second before its turn and the second reads the third before its turn,
+    /// while the third reads a field whose initializer has already run.
     /// </summary>
     /// <remarks>
-    /// The set is not pinned as a whole here. The pair reads a global declared after it, which the shader
-    /// compiler refuses under an identifier of its own, and what this row holds is that the walk terminates
-    /// and reports no cycle for the field it was entered for.
+    /// The pair read directly used to be left to the shader compiler, which refuses the read of a global
+    /// declared later under an identifier of its own, naming generated code. The two reads C# performs too
+    /// early are reported, and the one it does not perform too early is not.
     /// </remarks>
     [TestMethod]
-    public void APairOfStaticFieldsTheWalkReachesIsNotFollowedRound()
+    public void APairOfStaticFieldsReadingEachOtherIsDiagnosedAtTheReadsPerformedTooEarly()
     {
         const string Members = """
             private static readonly float Value = Twice();
@@ -630,17 +641,18 @@ public class ShaderGeneratorDiagnosticTests
                 private static float Twice() => Left * 2;
             """;
 
-        AssertReportsAt(ShaderWithStaticFields(Members), "ShaderStaticFieldPairReachedByTheWalkTests", "CMPW0124", 0);
+        AssertReportsAt(ShaderWithStaticFields(Members), "ShaderStaticFieldPairReachedByTheWalkTests", "CMPW0124", 2);
     }
 
     /// <summary>
-    /// The shapes the walk goes over without reaching a cycle: a declaration of another type called past the
-    /// shader's own method, a static field of another type, and a second field of the shader.
+    /// The shapes the walk goes over without reaching a read performed too early: a declaration of another
+    /// type called past the shader's own method, a static field of another type, an earlier field of the
+    /// shader read through the method, and a later field of the shader carrying no initializer, which holds
+    /// the default value of its type in C# and in the generated HLSL alike.
     /// </summary>
     /// <remarks>
-    /// A field of another type is left alone rather than walked, its initializer being rewritten under a claim
-    /// of its own, and a field of the shader is walked into an initializer that reads nothing back. Every row
-    /// reaches the walk, so a walk reporting on what it reaches rather than on the claim refuses all three.
+    /// Every row reaches the walk, so a walk reporting on what it reaches rather than on what C# reads before
+    /// its initializer has run refuses all four.
     /// </remarks>
     [TestMethod]
     [DataRow(
@@ -670,12 +682,22 @@ public class ShaderGeneratorDiagnosticTests
             private static float Twice() => Helper.Amount * 2;
         """)]
     [DataRow(
-        "ShaderStaticFieldReachingASecondFieldTests",
+        "ShaderStaticFieldReachingAnEarlierFieldTests",
+        "",
+        """
+        private static readonly float Base = 5.0f;
+
+            private static readonly float Value = Twice();
+
+            private static float Twice() => Base * 2;
+        """)]
+    [DataRow(
+        "ShaderStaticFieldReachingALaterFieldWithoutAnInitializerTests",
         "",
         """
         private static readonly float Value = Twice();
 
-            private static readonly float Base = 5.0f;
+            private static float Base;
 
             private static float Twice() => Base * 2;
         """)]
@@ -689,9 +711,8 @@ public class ShaderGeneratorDiagnosticTests
     /// </summary>
     /// <remarks>
     /// The first row is what separates a cycle from the ordinary shape: the same method reads the same field,
-    /// and only the initializer reaching that method makes it one. All three are refused by a report that does
-    /// not read the claim, and the last one by a claim that outlives the initializer it was taken for, so they
-    /// are what keeps the refusal to the field being initialized while its initializer is being rewritten.
+    /// and only the initializer reaching that method makes it one. All three are refused by a walk that reports
+    /// what it reaches rather than what C# reads before its initializer has run.
     /// </remarks>
     [TestMethod]
     [DataRow(
@@ -721,6 +742,335 @@ public class ShaderGeneratorDiagnosticTests
     public void AStaticFieldOfTheShaderWithoutACycleIsNotDiagnosed(string assemblyName, string members, string body)
     {
         AssertReportsNothing(ShaderWithStaticFields(members, body), assemblyName);
+    }
+
+    /// <summary>
+    /// A cycle a field closes through a declaration something else imported first: the shader body, an earlier
+    /// field, or the very import that reached the field. A declaration is imported once, so the read closing
+    /// the cycle is not rewritten again when the initializer calls it, and only a walk over what the
+    /// initializer reaches sees it.
+    /// </summary>
+    /// <remarks>
+    /// The rows are the declaration kinds an initializer can reach, a static method, an instance method and a
+    /// constructor, and the places that import one first. The last row calls the same method twice from one
+    /// initializer, which is one read and so one report.
+    /// </remarks>
+    [TestMethod]
+    [DataRow(
+        "ShaderStaticFieldCycleThroughAMethodTheBodyImportedTests",
+        "internal static class Helper { public static float Go() => Shader.Value * 2; }",
+        "internal static readonly float Value = Helper.Go();",
+        "this.buffer[0] = Helper.Go() + Value;",
+        1)]
+    [DataRow(
+        "ShaderStaticFieldCycleThroughAMethodAnEarlierFieldImportedTests",
+        "internal static class Helper { public static float Go() => Shader.Second * 2; }",
+        """
+        internal static readonly float First = Helper.Go();
+
+            internal static readonly float Second = Helper.Go();
+        """,
+        "this.buffer[0] = First + Second;",
+        1)]
+    [DataRow(
+        "ShaderStaticFieldCycleThroughAConstructorTheBodyImportedTests",
+        """
+        internal struct Box
+        {
+            public float Amount;
+
+            public Box(float amount)
+            {
+                Amount = amount + Shader.Value;
+            }
+
+            public static float Read(Box box) => box.Amount;
+        }
+        """,
+        "internal static readonly float Value = Box.Read(new Box(1.0f));",
+        "this.buffer[0] = Box.Read(new Box(1.0f)) + Value;",
+        1)]
+    [DataRow(
+        "ShaderStaticFieldCycleThroughAnInstanceMethodTheBodyImportedTests",
+        """
+        internal struct Box
+        {
+            public float Amount;
+
+            public Box(float amount)
+            {
+                Amount = amount;
+            }
+
+            public float Read() => Amount + Shader.Value;
+        }
+        """,
+        "internal static readonly float Value = new Box(1.0f).Read();",
+        "this.buffer[0] = new Box(1.0f).Read() + Value;",
+        1)]
+    [DataRow(
+        "ShaderStaticFieldCycleThroughAMethodCalledTwiceTests",
+        "internal static class Helper { public static float Go() => Shader.Value * 2; }",
+        "internal static readonly float Value = Helper.Go() + Helper.Go();",
+        "this.buffer[0] = Value;",
+        1)]
+    public void AStaticFieldReachedThroughADeclarationImportedEarlierIsDiagnosed(string assemblyName, string declarations, string members, string body, int expectedCount)
+    {
+        AssertReportsAt(ShaderWithStaticFields(members, body, declarations), assemblyName, "CMPW0124", expectedCount);
+    }
+
+    /// <summary>
+    /// A field of another type whose initializer calls the method that reached it, that method being in the
+    /// middle of its own import when the field is imported, so its body is not rewritten again either.
+    /// </summary>
+    [TestMethod]
+    public void AnExternalStaticFieldReachedThroughTheMethodImportingItIsDiagnosed()
+    {
+        const string Declarations = """
+            internal static class Helper
+            {
+                public static readonly float Value = Go();
+
+                public static float Go() => Value * 2;
+            }
+            """;
+
+        AssertReportsAt(ShaderWithStaticFields("", "this.buffer[0] = Helper.Go();", Declarations), "ExternalStaticFieldCycleThroughTheImportingMethodTests", "CMPW0124", 1);
+    }
+
+    /// <summary>
+    /// A static field read by an initializer that C# runs before the initializer of that field: a field of
+    /// the same type declared after the one being initialized, read directly, through a method of the shader,
+    /// through an imported method, or from the initializer of an imported field.
+    /// </summary>
+    /// <remarks>
+    /// C# reads the default value of the type there. The shader compiler folds the initializer the later field
+    /// carries when the read goes through a function, so the generated HLSL computes the initialized value
+    /// instead, and it does not compile the direct read at all, naming generated code. The report names the
+    /// read and the initializer that performs it too early.
+    /// </remarks>
+    [TestMethod]
+    [DataRow(
+        "ShaderStaticFieldReadingALaterFieldDirectlyTests",
+        "",
+        """
+        private static readonly float Value = Base * 2;
+
+            private static readonly float Base = 5.0f;
+        """)]
+    [DataRow(
+        "ShaderStaticFieldReadingALaterFieldThroughItsOwnMethodTests",
+        "",
+        """
+        private static readonly float Value = Twice();
+
+            private static readonly float Base = 5.0f;
+
+            private static float Twice() => Base * 2;
+        """)]
+    [DataRow(
+        "ShaderStaticFieldReadingALaterFieldThroughAnImportedMethodTests",
+        "internal static class Helper { public static float Go() => Shader.Base * 2; }",
+        """
+        internal static readonly float Value = Helper.Go();
+
+            internal static readonly float Base = 5.0f;
+        """)]
+    [DataRow(
+        "ShaderStaticFieldReadingALaterFieldFromAnImportedInitializerTests",
+        "internal static class Helper { public static readonly float Doubled = Shader.Base * 2; }",
+        """
+        internal static readonly float Value = Helper.Doubled;
+
+            internal static readonly float Base = 5.0f;
+        """)]
+    [DataRow(
+        "ExternalStaticFieldReadingALaterFieldDirectlyTests",
+        """
+        internal static class Helper
+        {
+            public static readonly float Value = Base * 2;
+
+            public static readonly float Base = 5.0f;
+        }
+        """,
+        "internal static readonly float Value = Helper.Value;")]
+    [DataRow(
+        "ExternalStaticFieldReadingALaterFieldThroughAMethodTests",
+        """
+        internal static class Helper
+        {
+            public static readonly float Value = Twice();
+
+            public static readonly float Base = 5.0f;
+
+            public static float Twice() => Base * 2;
+        }
+        """,
+        "internal static readonly float Value = Helper.Value;")]
+    public void AStaticFieldReadBeforeItsInitializerHasRunIsDiagnosed(string assemblyName, string declarations, string members)
+    {
+        AssertReportsAt(ShaderWithStaticFields(members, declarations: declarations), assemblyName, "CMPW0124", 1);
+    }
+
+    /// <summary>
+    /// A read inside a local function of a method the initializer reaches. C# runs the local function only
+    /// when the method calls it, so the read is performed too early only then, whereas the generated HLSL
+    /// lifts the function out whether or not it is called.
+    /// </summary>
+    [TestMethod]
+    [DataRow("ShaderStaticFieldReadInsideACalledLocalFunctionTests", "return Read();", true)]
+    [DataRow("ShaderStaticFieldReadInsideAnUncalledLocalFunctionTests", "return 2.0f;", false)]
+    public void AStaticFieldReadInsideALocalFunctionIsDiagnosedWhenTheFunctionIsCalled(string assemblyName, string body, bool isCalled)
+    {
+        string members = $$"""
+            private static readonly float Value = Twice();
+
+                private static float Twice()
+                {
+                    static float Read() => Value * 2;
+
+                    {{body}}
+                }
+            """;
+
+        if (isCalled)
+        {
+            AssertReportsAt(ShaderWithStaticFields(members), assemblyName, "CMPW0124", 1);
+        }
+        else
+        {
+            AssertReportsNothing(ShaderWithStaticFields(members), assemblyName);
+        }
+    }
+
+    /// <summary>
+    /// A static field written by an initializer that C# runs before the initializer of that field, through an
+    /// assignment or an out argument in a method of the shader. C# discards the write when the initializer of
+    /// the field runs, whereas the shader compiler folds that initializer into the declaration and keeps the
+    /// write.
+    /// </summary>
+    [TestMethod]
+    [DataRow(
+        "ShaderStaticFieldWritingALaterFieldTests",
+        """
+        private static readonly float Value = Init();
+
+            private static float Base = 5.0f;
+
+            private static float Init()
+            {
+                Base = 2.0f;
+
+                return 1.0f;
+            }
+        """)]
+    [DataRow(
+        "ShaderStaticFieldWritingALaterFieldThroughAnOutArgumentTests",
+        """
+        private static readonly float Value = Init();
+
+            private static float Base = 5.0f;
+
+            private static void Set(out float target)
+            {
+                target = 2.0f;
+            }
+
+            private static float Init()
+            {
+                Set(out Base);
+
+                return 1.0f;
+            }
+        """)]
+    public void AStaticFieldWrittenBeforeItsInitializerHasRunIsDiagnosed(string assemblyName, string members)
+    {
+        AssertReportsAt(ShaderWithStaticFields(members), assemblyName, "CMPW0124", 1);
+    }
+
+    /// <summary>
+    /// The writes C# and the generated HLSL agree on: one to a later field carrying no initializer, which both
+    /// keep, and one to the field being initialized, through an assignment or an out argument, which both lose
+    /// to the initializer running after it.
+    /// </summary>
+    /// <remarks>
+    /// The set is pinned empty rather than the identifier counted, so the rows also show the shader compiles.
+    /// </remarks>
+    [TestMethod]
+    [DataRow(
+        "ShaderStaticFieldWritingALaterFieldWithoutAnInitializerTests",
+        """
+        private static readonly float Value = Init();
+
+            private static float Base;
+
+            private static float Init()
+            {
+                Base = 2.0f;
+
+                return 1.0f;
+            }
+        """)]
+    [DataRow(
+        "ShaderStaticFieldWritingItselfTests",
+        """
+        private static float Value = Init();
+
+            private static float Init()
+            {
+                Value = 2.0f;
+
+                return 1.0f;
+            }
+        """)]
+    [DataRow(
+        "ShaderStaticFieldWritingItselfThroughAnOutArgumentTests",
+        """
+        private static float Value = Init();
+
+            private static void Set(out float target)
+            {
+                target = 2.0f;
+            }
+
+            private static float Init()
+            {
+                Set(out Value);
+
+                return 1.0f;
+            }
+        """)]
+    public void AStaticFieldWrittenWhereCSharpAndTheGeneratedHlslAgreeIsNotDiagnosed(string assemblyName, string members)
+    {
+        AssertReportsNothing(ShaderWithStaticFields(members), assemblyName);
+    }
+
+    /// <summary>
+    /// The message names the field accessed and the initializer performing the access, in that order, each
+    /// access being attributed to the initializer whose walk reached it.
+    /// </summary>
+    /// <remarks>
+    /// The count and the location cannot tell the two names apart, so the messages are read.
+    /// </remarks>
+    [TestMethod]
+    public void AStaticFieldAccessIsAttributedToTheInitializerPerformingIt()
+    {
+        const string Members = """
+            private static readonly float First = Second + 1;
+
+                private static readonly float Second = Third * 2;
+
+                private static readonly float Third = 5.0f;
+            """;
+
+        string[] attributions = [.. RunDiagnostics(ShaderWithStaticFields(Members, "this.buffer[0] = First;"), "ShaderStaticFieldAccessAttributionTests")
+            .Where(static diagnostic => diagnostic.Id == "CMPW0124")
+            .Select(static diagnostic => Regex.Match(diagnostic.GetMessage(), @"field \S*?(\w+) is accessed while the initializer of \S*?(\w+) is running"))
+            .Select(static match => $"{match.Groups[1].Value} in {match.Groups[2].Value}")
+            .Order()];
+
+        Assert.AreEqual("Second in First, Third in Second", string.Join(", ", attributions));
     }
 
     private static string ShaderWithStaticFields(string members, string body = "this.buffer[0] = Value;", string declarations = "")
@@ -867,14 +1217,27 @@ public class ShaderGeneratorDiagnosticTests
             """;
     }
 
+    /// <summary>
+    /// Asserts that an identifier is reported a given number of times, each at a location of its own.
+    /// </summary>
+    /// <remarks>
+    /// A report is one read the author has to change, so two reports at one location would be one read
+    /// reported twice, which is what a count alone cannot tell from two reads.
+    /// </remarks>
     private static void AssertReportsAt(string source, string assemblyName, string expectedId, int expectedCount)
     {
-        string[] actualIds = Run(source, assemblyName);
+        Diagnostic[] actualDiagnostics = RunDiagnostics(source, assemblyName);
+        Diagnostic[] expectedDiagnostics = [.. actualDiagnostics.Where(diagnostic => diagnostic.Id == expectedId)];
 
         Assert.AreEqual(
             expectedCount,
-            actualIds.Count(id => id == expectedId),
-            $"{expectedId} is not reported {expectedCount} time(s): {string.Join(", ", actualIds)}");
+            expectedDiagnostics.Length,
+            $"{expectedId} is not reported {expectedCount} time(s): {string.Join(", ", actualDiagnostics.Select(static diagnostic => diagnostic.Id).Order())}");
+
+        Assert.AreEqual(
+            expectedCount,
+            expectedDiagnostics.Select(static diagnostic => diagnostic.Location.SourceSpan).Distinct().Count(),
+            $"{expectedId} is reported more than once at one location: {string.Join(", ", expectedDiagnostics.Select(static diagnostic => diagnostic.Location.GetLineSpan().StartLinePosition))}");
     }
 
     private static void AssertReports(string source, string assemblyName, string expectedId)
@@ -902,6 +1265,12 @@ public class ShaderGeneratorDiagnosticTests
 
     private static string[] Run(string source, string assemblyName)
     {
+        // Not made distinct, so that a row can assert how many times an identifier was reported
+        return [.. RunDiagnostics(source, assemblyName).Select(static diagnostic => diagnostic.Id).Order()];
+    }
+
+    private static Diagnostic[] RunDiagnostics(string source, string assemblyName)
+    {
         CSharpCompilation compilation = CompilationHelper.CreateCompilation(
             [source],
             assemblyName,
@@ -911,7 +1280,6 @@ public class ShaderGeneratorDiagnosticTests
 
         Assert.IsNull(result.Exception, result.Exception?.ToString());
 
-        // Not made distinct, so that a row can assert how many times an identifier was reported
-        return [.. result.Diagnostics.Select(static diagnostic => diagnostic.Id).Order()];
+        return [.. result.Diagnostics];
     }
 }

@@ -34,6 +34,7 @@ namespace ComputeWeave.SourceGeneration.SyntaxRewriters;
 /// <param name="constantDefinitions">The collection of discovered constant definitions.</param>
 /// <param name="staticFieldDefinitions">The collection of discovered static field definitions.</param>
 /// <param name="requirements">The requirements gathered for the shader being rewritten.</param>
+/// <param name="calls">The collection of calls the generated HLSL holds, recorded from the declarations they are written in.</param>
 /// <param name="diagnostics">The collection of produced <see cref="DiagnosticInfo"/> instances.</param>
 /// <param name="token">The <see cref="CancellationToken"/> value for the current operation.</param>
 /// <param name="isEntryPoint">Whether or not the current instance is processing a shader entry point.</param>
@@ -47,6 +48,7 @@ internal sealed partial class ShaderSourceRewriter(
     IDictionary<IFieldSymbol, string> constantDefinitions,
     IDictionary<IFieldSymbol, HlslStaticField> staticFieldDefinitions,
     HlslShaderRequirements requirements,
+    ICollection<HlslCall> calls,
     ImmutableArrayBuilder<DiagnosticInfo> diagnostics,
     CancellationToken token,
     bool isEntryPoint = false)
@@ -66,6 +68,11 @@ internal sealed partial class ShaderSourceRewriter(
     /// The collection of discovered constructors for custom struct types.
     /// </summary>
     private readonly IDictionary<IMethodSymbol, (MethodDeclarationSyntax Stub, MethodDeclarationSyntax Ctor)> constructors = constructors;
+
+    /// <summary>
+    /// The collection of calls the generated HLSL holds, shared by every rewriter for the shader.
+    /// </summary>
+    private readonly ICollection<HlslCall> calls = calls;
 
     /// <summary>
     /// The collection of processed local functions in the current tree.
@@ -94,6 +101,15 @@ internal sealed partial class ShaderSourceRewriter(
     private SyntaxToken currentMethodIdentifier;
 
     /// <summary>
+    /// The symbol of the declaration whose body is being visited, which a call it holds is recorded from.
+    /// </summary>
+    /// <remarks>
+    /// A local function is written out as a function of its own, so while its body is visited this is the
+    /// local function rather than the declaration holding it, the way <see cref="implicitVariables"/> is swapped.
+    /// </remarks>
+    private IMethodSymbol? currentDeclaration;
+
+    /// <summary>
     /// The current depth inside local declarations.
     /// </summary>
     private int localFunctionDepth;
@@ -112,6 +128,7 @@ internal sealed partial class ShaderSourceRewriter(
         }
 
         this.currentMethodIdentifier = node.Identifier;
+        this.currentDeclaration = SemanticModel.For(node).GetDeclaredSymbol(node, CancellationToken);
 
         ReportUnmappedOperators(node);
 
@@ -145,6 +162,7 @@ internal sealed partial class ShaderSourceRewriter(
         }
 
         this.currentMethodIdentifier = node.Identifier;
+        this.currentDeclaration = SemanticModel.For(node).GetDeclaredSymbol(node, CancellationToken);
 
         // A local function is reached through the body of the declaration that holds it, so it is
         // covered here and does not need a walk of its own
@@ -193,6 +211,7 @@ internal sealed partial class ShaderSourceRewriter(
         }
 
         this.currentMethodIdentifier = node.Identifier;
+        this.currentDeclaration = SemanticModel.For(node).GetDeclaredSymbol(node, CancellationToken);
 
         LocalFunctionStatementSyntax? updatedNode = (LocalFunctionStatementSyntax?)base.Visit(node)!;
 
@@ -353,10 +372,13 @@ internal sealed partial class ShaderSourceRewriter(
 
             // A variable declared inside this function belongs to the function it is written in, which is
             // lifted out as a function of its own, so the declarations it raises are collected apart from
-            // the ones of the body holding it and written into its own body below
+            // the ones of the body holding it and written into its own body below. A call it holds is
+            // recorded from it for the same reason
             List<VariableDeclarationSyntax> enclosingImplicitVariables = this.implicitVariables;
+            IMethodSymbol? enclosingDeclaration = this.currentDeclaration;
 
             this.implicitVariables = [];
+            this.currentDeclaration = functionSymbol;
 
             LocalFunctionStatementSyntax updatedNode =
                 ((LocalFunctionStatementSyntax)base.VisitLocalFunctionStatement(node)!)
@@ -371,6 +393,7 @@ internal sealed partial class ShaderSourceRewriter(
             }
 
             this.implicitVariables = enclosingImplicitVariables;
+            this.currentDeclaration = enclosingDeclaration;
 
             updatedNode = ReplaceAndTrackType(updatedNode, updatedNode.ReturnType, node!.ReturnType, SemanticModel.For(node));
 
@@ -442,8 +465,29 @@ internal sealed partial class ShaderSourceRewriter(
             ConstantDefinitions,
             StaticFieldDefinitions,
             Requirements,
+            this.calls,
             Diagnostics,
             CancellationToken);
+    }
+
+    /// <summary>
+    /// Records a call the generated HLSL holds, from the declaration being visited to the one it resolves to.
+    /// </summary>
+    /// <param name="node">The call as the author wrote it.</param>
+    /// <param name="method">The method or constructor the call resolves to.</param>
+    /// <remarks>
+    /// A call resolving to a declaration with source is written out as a call to what that declaration is
+    /// written out as, whichever route imports or renames it, so it is recorded ahead of those routes. The
+    /// calls are read for one leading back to the declaration it is written in once every declaration is
+    /// rewritten, HLSL having no recursion (see <see cref="HlslDefinitionsSyntaxProcessor.ReportRecursiveCalls"/>).
+    /// A partial declaration is recorded under its defining part, which is what a call to it resolves to.
+    /// </remarks>
+    private void TrackCall(SyntaxNode node, IMethodSymbol method)
+    {
+        if (this.currentDeclaration is { } caller && method.TryGetSyntaxNode(CancellationToken, out SyntaxNode? _))
+        {
+            this.calls.Add((caller.PartialDefinitionPart ?? caller, method.PartialDefinitionPart ?? method, node));
+        }
     }
 
     /// <summary>
@@ -472,7 +516,7 @@ internal sealed partial class ShaderSourceRewriter(
             SemanticModel.For(node).GetOperation(node, CancellationToken) is IFieldReferenceOperation { Field.IsStatic: true } operation &&
             !SymbolEqualityComparer.Default.Equals(operation.Field.ContainingType, ShaderType))
         {
-            return ImportExternalStaticField(node, null, operation.Field) ?? base.VisitIdentifierName(node);
+            return ImportExternalStaticField(null, operation.Field) ?? base.VisitIdentifierName(node);
         }
 
         return base.VisitIdentifierName(node);
@@ -530,14 +574,12 @@ internal sealed partial class ShaderSourceRewriter(
                     // is often the case if they're accessed from external types. So we just map the name and use that expression.
                     if (SymbolEqualityComparer.Default.Equals(fieldOperation.Field.ContainingType, ShaderType))
                     {
-                        ReportCyclicStaticFieldInitializer(node, fieldOperation.Field);
-
                         _ = HlslKnownKeywords.TryGetMappedName(fieldOperation.Field.Name, out string? mappedFieldName);
 
                         return IdentifierName(mappedFieldName ?? fieldOperation.Field.Name);
                     }
 
-                    return ImportExternalStaticField(node, updatedNode, fieldOperation.Field);
+                    return ImportExternalStaticField(updatedNode, fieldOperation.Field);
                 }
             }
 
@@ -648,6 +690,8 @@ internal sealed partial class ShaderSourceRewriter(
             {
                 return updatedNode;
             }
+
+            TrackCall(node, method);
 
             if (method.IsStatic)
             {
@@ -768,11 +812,8 @@ internal sealed partial class ShaderSourceRewriter(
                     return updatedNode.WithExpression(IdentifierName(methodIdentifier));
                 }
 
-                // A static method of the shader is left for the generator's own path, so a cycle an
-                // initializer closes through one is answered by walking it (see HlslSourceRewriter)
-                ReportCyclicStaticFieldInitializerThroughShaderMethod(method);
-
-                // The call is written the way the generator writes the method out, under its name alone
+                // A static method of the shader is written out by the generator itself, so the call is
+                // written the way it writes the method out, under its name alone
                 return VisitShaderMethodInvocation(updatedNode);
             }
             else
@@ -992,6 +1033,9 @@ internal sealed partial class ShaderSourceRewriter(
                 this.constructors[constructor] = (stubNode, ctorNode);
             }
 
+            // The creation is written out as a call to the stub, which calls the constructor
+            TrackCall(node, constructor);
+
             // Rewrite the expression to invoke the rewritten constructor:
             //
             // <TYPE_NAME>::__ctor(...)
@@ -1006,27 +1050,17 @@ internal sealed partial class ShaderSourceRewriter(
     /// <summary>
     /// Imports a static field declared in an external type and rewrites the read of it as needed.
     /// </summary>
-    /// <param name="node">The <see cref="SyntaxNode"/> the access was written as, used as location.</param>
     /// <param name="updatedNode">The rewritten <see cref="SyntaxNode"/> to fall back to, if there is one.</param>
-    /// <param name="fieldSymbol">The <see cref="IFieldSymbol"/> instance for <paramref name="node"/>.</param>
+    /// <param name="fieldSymbol">The <see cref="IFieldSymbol"/> instance for the field being accessed.</param>
     /// <returns>The rewritten static field expression.</returns>
-    /// <remarks>
-    /// The location is taken from the node the author wrote and not from the field symbol, so that a cycle
-    /// closed from two declarations names both of the reads rather than naming the field declaration twice.
-    /// </remarks>
     [return: NotNullIfNotNull(nameof(updatedNode))]
-    internal SyntaxNode? ImportExternalStaticField(SyntaxNode node, SyntaxNode? updatedNode, IFieldSymbol fieldSymbol)
+    internal SyntaxNode? ImportExternalStaticField(SyntaxNode? updatedNode, IFieldSymbol fieldSymbol)
     {
+        // A field with an entry is written out under the name the entry holds. An entry with no type
+        // declaration is one still being rewritten, so the initializer has reached the field it initializes,
+        // which is reported once every initializer is rewritten (see HlslDefinitionsSyntaxProcessor)
         if (StaticFieldDefinitions.TryGetValue(fieldSymbol, out HlslStaticField fieldInfo))
         {
-            // An entry with no type declaration is one still being rewritten, so the initializer has
-            // reached the field it initializes. HLSL has no defined order for its global static
-            // initializers, so the value the shader reads here is not the one C# computes
-            if (fieldInfo.TypeDeclaration is null)
-            {
-                Diagnostics.Add(CyclicStaticFieldInitializer, node, fieldSymbol);
-            }
-
             return IdentifierName(fieldInfo.Name);
         }
 
@@ -1034,7 +1068,7 @@ internal sealed partial class ShaderSourceRewriter(
         string name = fieldSymbol.GetFullyQualifiedMetadataName().ToHlslIdentifierName();
 
         // Claim the entry before rewriting, the way an imported method and constructor already do, so that
-        // an initializer reaching itself is seen above rather than adding the same key a second time
+        // an initializer reaching itself finds the entry above rather than adding the same key a second time
         StaticFieldDefinitions.Add(fieldSymbol, (name, null, null, 0));
 
         // Execute the same logic as for shader static fields, to process them and extract the relevant info
@@ -1049,6 +1083,7 @@ internal sealed partial class ShaderSourceRewriter(
             ConstantDefinitions,
             StaticFieldDefinitions,
             Requirements,
+            this.calls,
             Diagnostics,
             CancellationToken,
             out _,
