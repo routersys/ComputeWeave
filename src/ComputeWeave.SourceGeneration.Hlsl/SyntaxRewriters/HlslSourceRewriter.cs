@@ -514,23 +514,17 @@ internal abstract partial class HlslSourceRewriter(
         // and member access expressions, as those will be handled separately. Doing so avoids unnecessarily
         // retrieving semantic information for every identifier, which would otherwise be fairly expensive.
         if (node.Parent is not (InvocationExpressionSyntax or MemberAccessExpressionSyntax) &&
-            SemanticModel.For(node).GetOperation(node, CancellationToken) is IFieldReferenceOperation operation)
+            SemanticModel.For(node).GetOperation(node, CancellationToken) is IFieldReferenceOperation operation &&
+            operation.Field.IsConst &&
+            operation.Type!.TypeKind != TypeKind.Enum &&
+            TryGetConstantLiteral(operation.Field.ConstantValue, out string? constantLiteral))
         {
-            if (operation.Field.IsConst &&
-                operation.Type!.TypeKind != TypeKind.Enum &&
-                TryGetConstantLiteral(operation.Field.ConstantValue, out string? constantLiteral))
-            {
-                ConstantDefinitions[operation.Field] = constantLiteral!;
+            ConstantDefinitions[operation.Field] = constantLiteral!;
 
-                string ownerTypeName = ((INamedTypeSymbol)operation.Field.ContainingSymbol).ToDisplayString().ToHlslIdentifierName();
-                string constantName = $"__{ownerTypeName}__{operation.Field.Name}";
+            string ownerTypeName = ((INamedTypeSymbol)operation.Field.ContainingSymbol).ToDisplayString().ToHlslIdentifierName();
+            string constantName = $"__{ownerTypeName}__{operation.Field.Name}";
 
-                return IdentifierName(constantName);
-            }
-
-            // A field of the shader written by its name alone reaches no other reporting site: the rewriter for
-            // the body leaves it to this one, and the rewriter for an initializer maps constants alone
-            ReportCyclicStaticFieldInitializer(node, operation.Field);
+            return IdentifierName(constantName);
         }
 
         return updatedNode;

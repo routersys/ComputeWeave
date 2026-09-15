@@ -1641,19 +1641,19 @@ partial class DiagnosticDescriptors
         helpLinkUri: "https://github.com/routersys/ComputeWeave");
 
     /// <summary>
-    /// Gets a <see cref="DiagnosticDescriptor"/> for a static field initializer reaching the field it initializes.
+    /// Gets a <see cref="DiagnosticDescriptor"/> for a static field accessed before its initializer has run.
     /// <para>
-    /// Format: <c>"The static field {0} is initialized from an expression that reads it back, directly or through a declaration that initializer reaches"</c>.
+    /// Format: <c>"The static field {0} is accessed while the initializer of {1} is running, before its own initializer has run (C# reads the default value of its type there and discards a write, which the generated HLSL does not reproduce)"</c>.
     /// </para>
     /// </summary>
-    public static readonly DiagnosticDescriptor CyclicStaticFieldInitializer = new(
+    public static readonly DiagnosticDescriptor StaticFieldAccessedBeforeInitialization = new(
         id: "CMPW0124",
-        title: "Static field initializer reaching the field it initializes",
-        messageFormat: "The static field {0} is initialized from an expression that reads it back, directly or through a declaration that initializer reaches",
+        title: "Static field accessed before its initializer has run",
+        messageFormat: "The static field {0} is accessed while the initializer of {1} is running, before its own initializer has run (C# reads the default value of its type there and discards a write, which the generated HLSL does not reproduce)",
         category: "ComputeWeave.Shaders",
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true,
-        description: "C# runs the initializer once, and where the cycle closes it reads the field as its default value, so the field holds whatever that produces. HLSL has no defined order for global static initializers, so the value the shader computes is not the one C# computes, and the shader compiler accepts the source without saying anything: the generated HLSL was measured to compile with the cycle written out as it stands. Before this report the generator faulted instead, adding the same key to the collection of static field definitions twice, which discards the descriptors for every shader in the compilation unit and leaves the author with errors that name none of this.",
+        description: "C# runs the static field initializers of a type once, in the order the fields are declared. A field whose turn has not come yet holds the default value of its type: a read of it is that default, and a write to it is discarded when its initializer runs. Both happen when an initializer reaches a field of the same type declared after it, directly or through any declaration it reaches, and the read happens when an initializer reaches back into the field it initializes. The generated HLSL reproduces neither: the shader compiler folds the initializer the field carries when it can, so the read is the initialized value and the write stays, leaves the read undefined otherwise, and does not compile a direct read of a global declared later at all, so the shader either computes a value C# never produces or fails against generated code the author never wrote. A field carrying no initializer holds the default value in both and is not reported, and neither is a write to the field being initialized, which its initializer overwrites in both. Before this report an initializer reaching itself faulted the generator instead, adding the same key to the collection of static field definitions twice, which discards the descriptors for every shader in the compilation unit and leaves the author with errors that name none of this.",
         helpLinkUri: "https://github.com/routersys/ComputeWeave");
 
     /// <summary>

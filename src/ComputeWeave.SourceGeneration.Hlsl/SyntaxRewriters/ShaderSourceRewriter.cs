@@ -472,7 +472,7 @@ internal sealed partial class ShaderSourceRewriter(
             SemanticModel.For(node).GetOperation(node, CancellationToken) is IFieldReferenceOperation { Field.IsStatic: true } operation &&
             !SymbolEqualityComparer.Default.Equals(operation.Field.ContainingType, ShaderType))
         {
-            return ImportExternalStaticField(node, null, operation.Field) ?? base.VisitIdentifierName(node);
+            return ImportExternalStaticField(null, operation.Field) ?? base.VisitIdentifierName(node);
         }
 
         return base.VisitIdentifierName(node);
@@ -535,14 +535,12 @@ internal sealed partial class ShaderSourceRewriter(
                     // is often the case if they're accessed from external types. So we just map the name and use that expression.
                     if (SymbolEqualityComparer.Default.Equals(fieldOperation.Field.ContainingType, ShaderType))
                     {
-                        ReportCyclicStaticFieldInitializer(node, fieldOperation.Field);
-
                         _ = HlslKnownKeywords.TryGetMappedName(fieldOperation.Field.Name, out string? mappedFieldName);
 
                         return IdentifierName(mappedFieldName ?? fieldOperation.Field.Name);
                     }
 
-                    return ImportExternalStaticField(node, updatedNode, fieldOperation.Field);
+                    return ImportExternalStaticField(updatedNode, fieldOperation.Field);
                 }
             }
 
@@ -772,10 +770,6 @@ internal sealed partial class ShaderSourceRewriter(
 
                     return updatedNode.WithExpression(IdentifierName(methodIdentifier));
                 }
-
-                // A static method of the shader is left for the generator's own path, so a cycle an
-                // initializer closes through one is answered by walking it (see HlslSourceRewriter)
-                ReportCyclicStaticFieldInitializerThroughShaderMethod(method);
             }
             else
             {
@@ -1001,27 +995,17 @@ internal sealed partial class ShaderSourceRewriter(
     /// <summary>
     /// Imports a static field declared in an external type and rewrites the read of it as needed.
     /// </summary>
-    /// <param name="node">The <see cref="SyntaxNode"/> the access was written as, used as location.</param>
     /// <param name="updatedNode">The rewritten <see cref="SyntaxNode"/> to fall back to, if there is one.</param>
-    /// <param name="fieldSymbol">The <see cref="IFieldSymbol"/> instance for <paramref name="node"/>.</param>
+    /// <param name="fieldSymbol">The <see cref="IFieldSymbol"/> instance for the field being accessed.</param>
     /// <returns>The rewritten static field expression.</returns>
-    /// <remarks>
-    /// The location is taken from the node the author wrote and not from the field symbol, so that a cycle
-    /// closed from two declarations names both of the reads rather than naming the field declaration twice.
-    /// </remarks>
     [return: NotNullIfNotNull(nameof(updatedNode))]
-    internal SyntaxNode? ImportExternalStaticField(SyntaxNode node, SyntaxNode? updatedNode, IFieldSymbol fieldSymbol)
+    internal SyntaxNode? ImportExternalStaticField(SyntaxNode? updatedNode, IFieldSymbol fieldSymbol)
     {
+        // A field with an entry is written out under the name the entry holds. An entry with no type
+        // declaration is one still being rewritten, so the initializer has reached the field it initializes,
+        // which is reported once every initializer is rewritten (see HlslDefinitionsSyntaxProcessor)
         if (StaticFieldDefinitions.TryGetValue(fieldSymbol, out HlslStaticField fieldInfo))
         {
-            // An entry with no type declaration is one still being rewritten, so the initializer has
-            // reached the field it initializes. HLSL has no defined order for its global static
-            // initializers, so the value the shader reads here is not the one C# computes
-            if (fieldInfo.TypeDeclaration is null)
-            {
-                Diagnostics.Add(CyclicStaticFieldInitializer, node, fieldSymbol);
-            }
-
             return IdentifierName(fieldInfo.Name);
         }
 
@@ -1029,7 +1013,7 @@ internal sealed partial class ShaderSourceRewriter(
         string name = fieldSymbol.GetFullyQualifiedMetadataName().ToHlslIdentifierName();
 
         // Claim the entry before rewriting, the way an imported method and constructor already do, so that
-        // an initializer reaching itself is seen above rather than adding the same key a second time
+        // an initializer reaching itself finds the entry above rather than adding the same key a second time
         StaticFieldDefinitions.Add(fieldSymbol, (name, null, null, 0));
 
         // Execute the same logic as for shader static fields, to process them and extract the relevant info
