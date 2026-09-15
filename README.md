@@ -297,7 +297,7 @@ ReadOnlyMemory<byte> bytecode = D2D1PixelShader.LoadBytecode<DifferenceEffect>()
 ReadOnlyMemory<byte> buffer = D2D1PixelShader.GetConstantBuffer(new DifferenceEffect(1));
 ```
 
-The declarations are checked by analyzers that report 101 diagnostics with the `CMPWD2D` prefix. Shaders are compiled to DXBC with FXC, which is what Direct2D accepts; `d3dcompiler_47.dll` ships with Windows, so the package bundles no compiler of its own.
+The declarations are checked by analyzers that report 102 diagnostics with the `CMPWD2D` prefix. Shaders are compiled to DXBC with FXC, which is what Direct2D accepts; `d3dcompiler_47.dll` ships with Windows, so the package bundles no compiler of its own.
 
 ---
 

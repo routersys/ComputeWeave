@@ -23,6 +23,26 @@ partial class HlslKnownMethods
 
     /// <summary>
     /// Checks whether or not a method name (previous matched with <see cref="TryGetMappedName(string, out string?)"/>)
+    /// is a thread synchronization intrinsic, which the pixel shader profiles refuse.
+    /// </summary>
+    /// <param name="name">The fully qualified metadata name.</param>
+    /// <returns>Whether the method is a thread synchronization intrinsic.</returns>
+    /// <remarks>
+    /// The shared <c>Hlsl</c> type declares six barriers for the compute shaders. Five of them were measured to be
+    /// refused by FXC under <c>ps_5_0</c> with <c>X3664</c>, while <c>DeviceMemoryBarrier</c> compiles, so it is not listed.
+    /// </remarks>
+    public static bool IsThreadSynchronization(string name)
+    {
+        return name is
+            "ComputeWeave.Hlsl.AllMemoryBarrier" or
+            "ComputeWeave.Hlsl.AllMemoryBarrierWithGroupSync" or
+            "ComputeWeave.Hlsl.DeviceMemoryBarrierWithGroupSync" or
+            "ComputeWeave.Hlsl.GroupMemoryBarrier" or
+            "ComputeWeave.Hlsl.GroupMemoryBarrierWithGroupSync";
+    }
+
+    /// <summary>
+    /// Checks whether or not a method name (previous matched with <see cref="TryGetMappedName(string, out string?)"/>)
     /// maps to a function-like macro from <c>d2d1effecthelpers.hlsli</c> that requires its coordinate argument (ie. the
     /// second argument) to be parenthesized. This is needed because those macros paste their arguments into expressions
     /// without parenthesizing them, which would otherwise break the expression semantics with compound arguments.
