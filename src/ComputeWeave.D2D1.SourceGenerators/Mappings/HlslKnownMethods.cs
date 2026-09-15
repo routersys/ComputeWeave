@@ -29,7 +29,9 @@ partial class HlslKnownMethods
     /// <returns>Whether the method is a thread synchronization intrinsic.</returns>
     /// <remarks>
     /// The shared <c>Hlsl</c> type declares six barriers for the compute shaders. Five of them were measured to be
-    /// refused by FXC under <c>ps_5_0</c> with <c>X3664</c>, while <c>DeviceMemoryBarrier</c> compiles, so it is not listed.
+    /// refused by FXC with <c>X3664</c> under every profile Direct2D accepts, from <c>ps_4_0_level_9_1</c> to <c>ps_5_0</c>.
+    /// <c>DeviceMemoryBarrier</c> compiles under <c>ps_4_0</c>, <c>ps_4_1</c> and <c>ps_5_0</c> and is refused only under
+    /// the two level 9 profiles, and the rewriting does not know the profile, so it is not listed and FXC answers for it there.
     /// </remarks>
     public static bool IsThreadSynchronization(string name)
     {

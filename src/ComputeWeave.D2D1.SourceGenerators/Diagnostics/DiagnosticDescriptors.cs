@@ -1575,6 +1575,6 @@ partial class DiagnosticDescriptors
         category: "ComputeWeave.D2D1.Shaders",
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true,
-        description: "The shared Hlsl type declares six memory barriers for the compute shaders, and a pixel shader is written with the same type. A pixel shader runs with no thread group to synchronize, so FXC refuses five of them under every pixel shader profile, while DeviceMemoryBarrier compiles and is left alone. Without this the call is written out as it stands and the shader compiler answers at the shader type rather than at the call. The compute generator refuses the intrinsics of the pixel stage the same way, so each of the two products refuses what its stage lacks.",
+        description: "The shared Hlsl type declares six memory barriers for the compute shaders, and a pixel shader is written with the same type. A pixel shader runs with no thread group to synchronize, so FXC refuses five of them under every pixel shader profile, while DeviceMemoryBarrier compiles under ps_4_0, ps_4_1 and ps_5_0 and is left alone; the two level 9 profiles refuse it as well, which the forwarded compiler error still reports, the rewriting not knowing the profile. Without this the call is written out as it stands and the shader compiler answers at the shader type rather than at the call. The compute generator refuses the intrinsics of the pixel stage the same way, so each of the two products refuses what its stage lacks.",
         helpLinkUri: "https://github.com/routersys/ComputeWeave");
 }
