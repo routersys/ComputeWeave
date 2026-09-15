@@ -110,16 +110,12 @@ internal sealed partial class StaticFieldRewriter(
             {
                 if (SymbolEqualityComparer.Default.Equals(staticFieldOperation.Field.ContainingType, ShaderType))
                 {
-                    // An initializer naming the shader to reach the field it writes closes the cycle here,
-                    // this being the only site a qualified read of it reaches
-                    ReportCyclicStaticFieldInitializer(node, staticFieldOperation.Field);
-
                     _ = HlslKnownKeywords.TryGetMappedName(staticFieldOperation.Field.Name, out string? mappedFieldName);
 
                     return IdentifierName(mappedFieldName ?? staticFieldOperation.Field.Name);
                 }
 
-                return ImportExternalStaticField(node, updatedNode, staticFieldOperation.Field);
+                return ImportExternalStaticField(updatedNode, staticFieldOperation.Field);
             }
 
             if (HlslKnownProperties.TryGetMappedName(operation.Member.ToDisplayString(), out string? mapping))
@@ -152,7 +148,7 @@ internal sealed partial class StaticFieldRewriter(
             SemanticModel.For(node).GetOperation(node, CancellationToken) is IFieldReferenceOperation { Field.IsStatic: true } operation &&
             !SymbolEqualityComparer.Default.Equals(operation.Field.ContainingType, ShaderType))
         {
-            return ImportExternalStaticField(node, null, operation.Field) ?? base.VisitIdentifierName(node);
+            return ImportExternalStaticField(null, operation.Field) ?? base.VisitIdentifierName(node);
         }
 
         return base.VisitIdentifierName(node);
@@ -161,16 +157,15 @@ internal sealed partial class StaticFieldRewriter(
     /// <summary>
     /// Imports a static field declared outside the shader, through the rewriter that imports every other declaration.
     /// </summary>
-    /// <param name="node">The <see cref="SyntaxNode"/> the read was written as, used as location.</param>
     /// <param name="updatedNode">The rewritten <see cref="SyntaxNode"/> to fall back to, if there is one.</param>
-    /// <param name="fieldSymbol">The <see cref="IFieldSymbol"/> instance for <paramref name="node"/>.</param>
+    /// <param name="fieldSymbol">The <see cref="IFieldSymbol"/> instance for the field being accessed.</param>
     /// <returns>The rewritten static field expression.</returns>
     [return: NotNullIfNotNull(nameof(updatedNode))]
-    private SyntaxNode? ImportExternalStaticField(SyntaxNode node, SyntaxNode? updatedNode, IFieldSymbol fieldSymbol)
+    private SyntaxNode? ImportExternalStaticField(SyntaxNode? updatedNode, IFieldSymbol fieldSymbol)
     {
         ShaderSourceRewriter shaderSourceRewriter = CreateImportRewriter();
 
-        SyntaxNode? rewrittenNode = shaderSourceRewriter.ImportExternalStaticField(node, updatedNode, fieldSymbol);
+        SyntaxNode? rewrittenNode = shaderSourceRewriter.ImportExternalStaticField(updatedNode, fieldSymbol);
 
         MergeImportedLocalFunctions(shaderSourceRewriter);
 
@@ -253,15 +248,11 @@ internal sealed partial class StaticFieldRewriter(
             // A static method with no mapping is imported by rewriting its declaration, the same way the
             // shader body imports one. HLSL accepts a call in a static field initializer because every
             // forward declaration is written ahead of the static fields. A method on the shader type is
-            // left alone for the generator to write out, so what it reaches is walked for a cycle instead.
-            if (method.IsStatic)
+            // left alone, as the generator writes those out through its own path.
+            if (method.IsStatic &&
+                !SymbolEqualityComparer.Default.Equals(ShaderType, method.ContainingType))
             {
-                if (!SymbolEqualityComparer.Default.Equals(ShaderType, method.ContainingType))
-                {
-                    return VisitImportedStaticMethodInvocation(node, updatedNode, method);
-                }
-
-                ReportCyclicStaticFieldInitializerThroughShaderMethod(method);
+                return VisitImportedStaticMethodInvocation(node, updatedNode, method);
             }
         }
 

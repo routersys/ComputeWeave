@@ -18,6 +18,8 @@ namespace ComputeWeave.Tests.SourceGenerators.Shaders;
 /// Both are refused by tracking the type, the way a local of that type already is, so the report is the one for
 /// an invalid discovered type. A constant is reached by its name alone, through a member access in the body, and
 /// through a member access in a static field initializer, which are three rewriting sites, so each has a row.
+/// A native integer constant is boxed as a 32 bit value while C# computes with it at the width of the platform,
+/// so it is told by its type rather than by its value: it has a row of each sign.
 /// </para>
 /// <para>
 /// The last rows are the controls. A constant of a type the set does have is still written as a definition, a
@@ -41,6 +43,8 @@ public class ConstantAndLiteralTypeTests
             public const long Wide = 5;
 
             public const uint Narrow = 5;
+
+            public const nuint UnsignedNative = 5;
         }
 
         [ThreadGroupSize(DefaultThreadGroupSizes.X)]
@@ -48,6 +52,8 @@ public class ConstantAndLiteralTypeTests
         internal readonly partial struct Shader : IComputeShader
         {
             private const long Big = 5;
+
+            private const nint Native = 5;
 
             private const int Small = 5;
 
@@ -100,6 +106,18 @@ public class ConstantAndLiteralTypeTests
     public void ALongConstantInAStaticFieldInitializerIsRefused()
     {
         AssertReports(Shader("this.buffer[0] = Seeded;", "Helper.Wide + 1"), "LongConstantInitializerTests", "CMPW0050");
+    }
+
+    [TestMethod]
+    public void ANativeIntegerConstantIsRefused()
+    {
+        AssertReports(Shader("this.buffer[0] = (float)(Native + this.signed);"), "NativeIntegerConstantTests", "CMPW0050");
+    }
+
+    [TestMethod]
+    public void AnUnsignedNativeIntegerConstantReadThroughAMemberAccessIsRefused()
+    {
+        AssertReports(Shader("this.buffer[0] = (float)(Helper.UnsignedNative + this.unsigned);"), "UnsignedNativeIntegerConstantTests", "CMPW0050");
     }
 
     /// <summary>

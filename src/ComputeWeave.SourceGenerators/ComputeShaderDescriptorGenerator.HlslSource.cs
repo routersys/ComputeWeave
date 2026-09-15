@@ -427,6 +427,15 @@ partial class ComputeShaderDescriptorGenerator
                 }
             }
 
+            // An access C# performs before the field's initializer has run is reported once every initializer
+            // is rewritten, the walk covering the declarations a rewriting does not pass through again
+            HlslDefinitionsSyntaxProcessor.ReportStaticFieldAccessesBeforeInitialization(
+                structDeclarationSymbol,
+                staticFieldDefinitions,
+                semanticModel,
+                diagnostics,
+                token);
+
             // The fields are written as one sequence, ordered by when each finished, which is after every
             // field its own initializer reached. A declared field and an imported one that finished with the
             // same count keep this order, the import having finished after the declared field did
