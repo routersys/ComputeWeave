@@ -719,6 +719,15 @@ internal sealed partial class ShaderSourceRewriter(
                     {
                         return updatedNode;
                     }
+#else
+                    // Special case: a pixel shader has no thread group to synchronize, so FXC refuses a barrier
+                    // under every pixel shader profile, and the call is refused before the compiler is handed it.
+                    // Compute shaders are the ones the barriers exist for, so this is excluded from that generator
+                    // by the compilation symbol the same way (see HlslSourceRewriter for more info).
+                    if (ReportThreadSynchronizationInPixelShader(node, metadataName, method))
+                    {
+                        return updatedNode;
+                    }
 #endif
 
                     // Write out the conversions C# applied to the arguments (see HlslSourceRewriter for more info)
