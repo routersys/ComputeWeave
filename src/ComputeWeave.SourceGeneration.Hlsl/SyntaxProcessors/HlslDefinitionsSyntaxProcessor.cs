@@ -418,7 +418,8 @@ internal static class HlslDefinitionsSyntaxProcessor
     }
 
     /// <summary>
-    /// Reports every access to a static field that C# performs before the initializer of that field has run.
+    /// Reports every access to a static field that C# performs before the initializer of that field has run, and
+    /// every access closing a cycle between the static field initializers of two types.
     /// </summary>
     /// <param name="structDeclarationSymbol">The type symbol for the shader type.</param>
     /// <param name="staticFieldDefinitions">The collection of discovered static field definitions.</param>
@@ -440,12 +441,16 @@ internal static class HlslDefinitionsSyntaxProcessor
     /// <para>
     /// The walk starts from the initializer of every static field the generated HLSL declares, the ones of the
     /// shader and the imported ones alike, and follows every declaration it reaches (see
-    /// <see cref="ReachedDeclarationWalker"/>) and the initializer of a static field of another type, whose
-    /// initializers C# runs when that type is first touched. A field of the same type is not walked into, its
-    /// initializer having run already or not running until its own turn. An access two initializers both
-    /// perform too early is one place to change, so it is reported once, for the first of the two in
-    /// declaration order. The walk does not follow the order of the statements it passes, so a read after a
-    /// write in the same declaration is reported like any other.
+    /// <see cref="ReachedDeclarationWalker"/>). On touching a static field of another type it walks every
+    /// static field initializer of that type, C# running all of them when the type is first touched, and walks
+    /// them apart from what the initializer itself reaches, so that a declaration both reach is walked once
+    /// from each. Inside them, an access to any static field of the type being initialized closes a cycle
+    /// between the two types and is reported as that, whichever field it is: which type the body touches first
+    /// decides the values there, whereas the report above describes the one order C# runs within a type. A
+    /// field of the same type is not walked into, its initializer having run already or not running until its
+    /// own turn. An access two initializers both perform is one place to change, so it is reported once, for
+    /// the first of the two in declaration order. The walk does not follow the order of the statements it
+    /// passes, so a read after a write in the same declaration is reported like any other.
     /// </para>
     /// <para>
     /// This runs once after the initializers are rewritten rather than as they are, because a rewriting does
@@ -513,11 +518,43 @@ internal static class HlslDefinitionsSyntaxProcessor
                 GetInitializers(field.ContainingType).SkipWhile(candidate => !SymbolEqualityComparer.Default.Equals(candidate.Field, field)).Select(candidate => candidate.Field),
                 SymbolEqualityComparer.Default);
 
-            ReachedDeclarationWalker walk = new(semanticModel, token, (walker, node, reference) =>
+            // The types whose initializers the walk is inside, the one touched last on top
+            Stack<INamedTypeSymbol> touchedTypes = new();
+
+            // The initializers of another type are walked apart from what the initializer itself reaches, so that a
+            // declaration both reach is walked once from each, an access it performs meaning a different thing in the two
+            ReachedDeclarationWalker walkTouchedTypes = new(semanticModel, token, (walker, node, reference) => Visit(walker, node, reference));
+            ReachedDeclarationWalker walk = new(semanticModel, token, (_, node, reference) => Visit(walkTouchedTypes, node, reference));
+
+            walk.WalkNodes(initializer);
+
+            void Visit(ReachedDeclarationWalker walkOtherTypes, SyntaxNode node, IFieldReferenceOperation reference)
             {
                 IFieldSymbol reachedField = reference.Field;
 
-                if (pending.Contains(reachedField))
+                if (!SymbolEqualityComparer.Default.Equals(reachedField.ContainingType, field.ContainingType))
+                {
+                    // Touching a static field of another type runs every static field initializer of that type,
+                    // not only the one of the field touched, so all of them are walked
+                    touchedTypes.Push(reachedField.ContainingType);
+
+                    foreach ((IFieldSymbol touchedField, ExpressionSyntax touchedInitializer) in GetInitializers(reachedField.ContainingType))
+                    {
+                        walkOtherTypes.Walk(touchedField, touchedInitializer);
+                    }
+
+                    _ = touchedTypes.Pop();
+                }
+                else if (touchedTypes.Count > 0)
+                {
+                    // An initializer of another type, started by this one, reaching back into this type: which
+                    // of the two types C# initializes first decides the values, so the access closing the cycle is reported
+                    if (reportedAccesses.Add(node))
+                    {
+                        diagnostics.Add(StaticFieldInitializersReachingEachOther, node, reachedField, touchedTypes.Peek(), field.ContainingType);
+                    }
+                }
+                else if (pending.Contains(reachedField))
                 {
                     // A write to the field being initialized is overwritten by its initializer in the
                     // generated HLSL as well, so it is the one access that is not reported
@@ -527,14 +564,7 @@ internal static class HlslDefinitionsSyntaxProcessor
                         diagnostics.Add(StaticFieldAccessedBeforeInitialization, node, reachedField, field);
                     }
                 }
-                else if (!SymbolEqualityComparer.Default.Equals(reachedField.ContainingType, field.ContainingType) &&
-                         reachedField.TryGetSyntaxNode(token, out VariableDeclaratorSyntax? reachedDeclarator))
-                {
-                    walker.Walk(reachedField, reachedDeclarator.Initializer?.Value);
-                }
-            });
-
-            walk.WalkNodes(initializer);
+            }
         }
     }
 

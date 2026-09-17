@@ -1479,6 +1479,22 @@ partial class DiagnosticDescriptors
         helpLinkUri: "https://github.com/routersys/ComputeWeave");
 
     /// <summary>
+    /// Gets a <see cref="DiagnosticDescriptor"/> for static field initializers of two types reaching each other.
+    /// <para>
+    /// Format: <c>"The static field {0} is accessed by a static field initializer of {1}, which a static field initializer of {2} reaches (C# runs the initializers of {2} and {1} in an order that depends on which type is touched first, which the generated HLSL does not reproduce)"</c>.
+    /// </para>
+    /// </summary>
+    public static readonly DiagnosticDescriptor StaticFieldInitializersReachingEachOther = new(
+        id: "CMPWD2D0105",
+        title: "Static field initializers of two types reaching each other",
+        messageFormat: "The static field {0} is accessed by a static field initializer of {1}, which a static field initializer of {2} reaches (C# runs the initializers of {2} and {1} in an order that depends on which type is touched first, which the generated HLSL does not reproduce)",
+        category: "ComputeWeave.D2D1.Shaders",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "C# runs the static field initializers of a type when the type is first touched, so when the initializers of two types each reach a static field of the other, the type touched second starts while the initializers of the first are still running and reads their fields as they stand, and the values depend on which type the body touches first. The generated HLSL runs every initializer once, in the order the declarations were imported, so it matches one of those orders at most. Every static field initializer of a touched type runs, whether or not the shader reads the field it initializes, so the access closing the cycle is reported wherever it is, and removing it, or the access that started the other type, breaks the cycle. An access to a field of the same type declared later is reported as a field accessed before its initializer has run instead, C# running the initializers of one type in a single order.",
+        helpLinkUri: "https://github.com/routersys/ComputeWeave");
+
+    /// <summary>
     /// Gets a <see cref="DiagnosticDescriptor"/> for an operation whose operands C# widens past the HLSL type set.
     /// <para>
     /// Format: <c>"The operands of this operation are widened to {0}, which is outside the HLSL type set (a signed and an unsigned integer in one operation are widened together, and that widening cannot be written into the generated code, so the operands have to be brought to one type with an explicit conversion)"</c>.
