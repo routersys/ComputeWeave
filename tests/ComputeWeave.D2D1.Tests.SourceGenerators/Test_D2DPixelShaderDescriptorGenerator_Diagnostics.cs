@@ -1303,6 +1303,52 @@ public class Test_D2DPixelShaderDescriptorGenerator_Diagnostics
     }
 
     /// <summary>
+    /// Static field initializers of two types reaching each other, the shader reading one of the fields. C#
+    /// runs the initializers of the type touched second while those of the first are still running, so the
+    /// values depend on which type is touched first, and the generated HLSL runs them in one order.
+    /// </summary>
+    /// <remarks>
+    /// The walk is shared with the compute generator, and each of the two carries the descriptor under its own
+    /// identifier, so a row on one of them says nothing about the other.
+    /// </remarks>
+    [TestMethod]
+    public void StaticFieldInitializersOfTwoTypesReachingEachOtherAreDiagnosed()
+    {
+        const string source = """
+            using ComputeWeave;
+            using ComputeWeave.D2D1;
+            using float4 = global::ComputeWeave.Float4;
+
+            namespace MyNamespace;
+
+            internal static class A
+            {
+                public static readonly float W = 5.0f;
+
+                public static readonly float X = B.Y + 1;
+            }
+
+            internal static class B
+            {
+                public static readonly float Y = A.W * 2;
+            }
+
+            [D2DInputCount(0)]
+            [D2DShaderProfile(D2D1ShaderProfile.PixelShader50)]
+            [D2DGeneratedPixelShaderDescriptor]
+            internal readonly partial struct MyShader : ID2D1PixelShader
+            {
+                public float4 Execute()
+                {
+                    return B.Y + A.X;
+                }
+            }
+            """;
+
+        CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnosticIsReported(source, "CMPWD2D0105");
+    }
+
+    /// <summary>
     /// A static method of the shader reading a static field of it, reached from the body rather than from that
     /// field's initializer, which is the ordinary shape the walk answering the rows above runs over.
     /// </summary>

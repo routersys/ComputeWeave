@@ -380,36 +380,6 @@ public class StaticFieldInitializerTests
         """;
 
     /// <summary>
-    /// A static field declared on the shader type, read from the initializer of an imported one.
-    /// </summary>
-    private const string ImportedReadingDeclaredSource = """
-        using ComputeWeave;
-
-        namespace Shaders;
-
-        internal static class Helper
-        {
-            public static readonly float Doubled = Shader.Baseline * 2;
-        }
-
-        [ThreadGroupSize(DefaultThreadGroupSizes.X)]
-        [GeneratedComputeShaderDescriptor]
-        internal readonly partial struct Shader : IComputeShader
-        {
-            public static readonly float Baseline = 2.0f;
-
-            private static readonly float Scale = Helper.Doubled;
-
-            private readonly ReadWriteBuffer<float> buffer;
-
-            public void Execute()
-            {
-                this.buffer[0] = Scale;
-            }
-        }
-        """;
-
-    /// <summary>
     /// An out argument written as a declaration, in an initializer.
     /// </summary>
     private const string OutVariableSource = """
@@ -644,23 +614,6 @@ public class StaticFieldInitializerTests
     public void AReadThatClosesACycleIsReported()
     {
         Assert.AreEqual("CMPW0124", Report(CyclicFieldSource, "StaticFieldCyclicFieldTests"));
-    }
-
-    /// <summary>
-    /// A field declared on the shader type is written ahead of an imported field whose initializer reads
-    /// it. The two are one sequence ordered by when each finished, so neither group is written as a block.
-    /// </summary>
-    [TestMethod]
-    public void ADeclaredStaticFieldReadFromAnImportedInitializerIsWrittenFirst()
-    {
-        string generated = Generate(ImportedReadingDeclaredSource, "StaticFieldImportedReadingDeclaredTests");
-
-        int declaration = generated.IndexOf("static const float Baseline = 2.0", System.StringComparison.Ordinal);
-        int read = generated.IndexOf("Shaders_Helper_Doubled = Baseline * 2", System.StringComparison.Ordinal);
-
-        Assert.AreNotEqual(-1, declaration, $"the declared field is not written:\n{generated}");
-        Assert.AreNotEqual(-1, read, $"the imported field is not written:\n{generated}");
-        Assert.IsTrue(declaration < read, $"the imported field is written ahead of the declaration it reads:\n{generated}");
     }
 
     /// <summary>

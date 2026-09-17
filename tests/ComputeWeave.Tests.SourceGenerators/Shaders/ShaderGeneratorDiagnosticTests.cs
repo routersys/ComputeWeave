@@ -576,9 +576,10 @@ public class ShaderGeneratorDiagnosticTests
     /// A field of the shader and a field of another type whose initializers reach each other.
     /// </summary>
     /// <remarks>
-    /// Whichever type C# initializes first, its initializer starts the other one and reads its own field back
-    /// through it before that initializer has run, so each of the two reads is the read a run of the program
-    /// performs too early, and both are reported. Neither of the two is the shape one type can fix alone.
+    /// Whichever type C# initializes first, its initializer starts the other one, which reads the first type's
+    /// field back before that initializer has run, so the values depend on which type the body touches first.
+    /// Each of the two reads closes the cycle, so both are reported, as the cycle across two types rather than
+    /// as a field accessed before its initializer has run, which describes one of the two orders only.
     /// </remarks>
     [TestMethod]
     public void AStaticFieldOfTheShaderAndAnImportedFieldReachingEachOtherAreDiagnosed()
@@ -596,7 +597,7 @@ public class ShaderGeneratorDiagnosticTests
                 internal static float Twice() => Helper.Amount;
             """;
 
-        AssertReportsAt(ShaderWithStaticFields(Members, "this.buffer[0] = First;", Declarations), "ShaderStaticFieldCycleThroughAnImportedFieldTests", "CMPW0124", 2);
+        AssertReportsAt(ShaderWithStaticFields(Members, "this.buffer[0] = First;", Declarations), "ShaderStaticFieldCycleThroughAnImportedFieldTests", "CMPW0132", 2);
     }
 
     /// <summary>
@@ -840,8 +841,9 @@ public class ShaderGeneratorDiagnosticTests
 
     /// <summary>
     /// A static field read by an initializer that C# runs before the initializer of that field: a field of
-    /// the same type declared after the one being initialized, read directly, through a method of the shader,
-    /// through an imported method, or from the initializer of an imported field.
+    /// the same type declared after the one being initialized, read directly, through a method of the shader
+    /// or through an imported method. A read from the initializer of an imported field is a cycle across two
+    /// types instead, which has a test of its own.
     /// </summary>
     /// <remarks>
     /// C# reads the default value of the type there. The shader compiler folds the initializer the later field
@@ -873,14 +875,6 @@ public class ShaderGeneratorDiagnosticTests
         "internal static class Helper { public static float Go() => Shader.Base * 2; }",
         """
         internal static readonly float Value = Helper.Go();
-
-            internal static readonly float Base = 5.0f;
-        """)]
-    [DataRow(
-        "ShaderStaticFieldReadingALaterFieldFromAnImportedInitializerTests",
-        "internal static class Helper { public static readonly float Doubled = Shader.Base * 2; }",
-        """
-        internal static readonly float Value = Helper.Doubled;
 
             internal static readonly float Base = 5.0f;
         """)]
@@ -1071,6 +1065,324 @@ public class ShaderGeneratorDiagnosticTests
             .Order()];
 
         Assert.AreEqual("Second in First, Third in Second", string.Join(", ", attributions));
+    }
+
+    /// <summary>
+    /// Static field initializers of two or more types reaching each other: the shape of the issue, a cycle
+    /// closed by an initializer of a field the body never reads, one closed through a static method of the
+    /// first type, one closed by reading a field carrying no initializer, a cycle of three types, cycles
+    /// between the shader and another type in both directions, one the shader closes from two fields, one where
+    /// the values happen to agree, and one between two imported types the body reaches through one of them.
+    /// </summary>
+    /// <remarks>
+    /// C# runs the static field initializers of a type when the type is first touched, all of them, so which
+    /// type the body touches first decides what each initializer reads, and the generated HLSL runs them in one
+    /// order. The values were run on the console for every row that differs: the shape of the issue computes 1
+    /// or 11, the field the body never reads makes the other one compute 1 or 4, the static method 5 or 10, the
+    /// field without an initializer 0 or 1, and the three types 3, 2, 1 or 1, 3, 2. The row where the values
+    /// agree is reported all the same: whether they agree depends on the declaration order of every field the
+    /// cycle passes, which only running every order would tell. Each access closing a cycle is one report, at
+    /// its own location, so the two fields of the shader reaching the same access back count it once.
+    /// </remarks>
+    [TestMethod]
+    [DataRow(
+        "StaticFieldInitializersOfTwoTypesReachingEachOtherTests",
+        """
+        internal static class A
+        {
+            public static readonly float W = 5.0f;
+
+            public static readonly float X = B.Y + 1;
+        }
+
+        internal static class B
+        {
+            public static readonly float Y = A.W * 2;
+        }
+        """,
+        "",
+        "this.buffer[0] = B.Y + A.X;",
+        2)]
+    [DataRow(
+        "StaticFieldInitializersReachingEachOtherThroughAFieldTheBodyNeverReadsTests",
+        """
+        internal static class A
+        {
+            public static readonly float W = 5.0f;
+
+            public static readonly float X = B.Y + 1;
+        }
+
+        internal static class B
+        {
+            public static readonly float Z = A.W;
+
+            public static readonly float Y = 3.0f;
+        }
+        """,
+        "",
+        "this.buffer[0] = A.X + B.Y;",
+        1)]
+    [DataRow(
+        "StaticFieldInitializersReachingEachOtherThroughAStaticMethodTests",
+        """
+        internal static class A
+        {
+            public static readonly float W = 5.0f;
+
+            public static readonly float X = Read() + B.Y;
+
+            public static float Read() => W;
+        }
+
+        internal static class B
+        {
+            public static readonly float Y = A.Read();
+        }
+        """,
+        "",
+        "this.buffer[0] = A.X + B.Y;",
+        2)]
+    [DataRow(
+        "StaticFieldInitializersReachingEachOtherThroughAFieldWithoutAnInitializerTests",
+        """
+        internal static class A
+        {
+            public static readonly float X = B.Y;
+
+            public static float Z;
+        }
+
+        internal static class B
+        {
+            public static readonly float Y = A.Z + 1;
+        }
+        """,
+        "",
+        "this.buffer[0] = A.X + B.Y;",
+        2)]
+    [DataRow(
+        "StaticFieldInitializersOfThreeTypesReachingEachOtherTests",
+        """
+        internal static class A
+        {
+            public static readonly float X = B.Y + 1;
+        }
+
+        internal static class B
+        {
+            public static readonly float Y = C.Z + 1;
+        }
+
+        internal static class C
+        {
+            public static readonly float Z = A.X + 1;
+        }
+        """,
+        "",
+        "this.buffer[0] = A.X;",
+        3)]
+    [DataRow(
+        "StaticFieldInitializersOfTheShaderAndAnotherTypeReachingEachOtherTests",
+        "internal static class Helper { public static readonly float Amount = Shader.Base * 2; }",
+        """
+        internal static readonly float Base = 5.0f;
+
+            internal static readonly float Value = Helper.Amount;
+        """,
+        "this.buffer[0] = Value;",
+        2)]
+    [DataRow(
+        "StaticFieldInitializersOfTheShaderReachingAnotherTypeTwiceTests",
+        "internal static class Helper { public static readonly float Amount = Shader.Base * 2; }",
+        """
+        internal static readonly float Base = 5.0f;
+
+            internal static readonly float First = Helper.Amount;
+
+            internal static readonly float Second = Helper.Amount + 1;
+        """,
+        "this.buffer[0] = First + Second;",
+        3)]
+    [DataRow(
+        "StaticFieldInitializersOfTheShaderAndAnotherTypeReachingALaterFieldTests",
+        "internal static class Helper { public static readonly float Doubled = Shader.Base * 2; }",
+        """
+        internal static readonly float Value = Helper.Doubled;
+
+            internal static readonly float Base = 5.0f;
+        """,
+        "this.buffer[0] = Value;",
+        2)]
+    [DataRow(
+        "StaticFieldInitializersReachingEachOtherWhereTheValuesAgreeTests",
+        """
+        internal static class A
+        {
+            public static readonly float W = 5.0f;
+
+            public static readonly float X = B.N + 1;
+        }
+
+        internal static class B
+        {
+            public static float N;
+
+            public static readonly float H = A.W;
+        }
+        """,
+        "",
+        "this.buffer[0] = A.X;",
+        1)]
+    [DataRow(
+        "StaticFieldInitializersOfTwoImportedTypesReachingEachOtherTests",
+        """
+        internal static class A
+        {
+            public static readonly float X = B.Y;
+        }
+
+        internal static class B
+        {
+            public static readonly float Y = C.Z + 1;
+
+            public static readonly float W = 2.0f;
+        }
+
+        internal static class C
+        {
+            public static readonly float Z = B.W;
+        }
+        """,
+        "",
+        "this.buffer[0] = A.X;",
+        2)]
+    public void StaticFieldInitializersOfTwoTypesReachingEachOtherAreDiagnosed(string assemblyName, string declarations, string members, string body, int expectedCount)
+    {
+        AssertReportsAt(ShaderWithStaticFields(members, body, declarations), assemblyName, "CMPW0132", expectedCount);
+    }
+
+    /// <summary>
+    /// Static field initializers reaching another type without that type reaching back: one direction only,
+    /// a static method of another type read without touching a static field of it, which runs none of its
+    /// initializers, and three types in a line.
+    /// </summary>
+    /// <remarks>
+    /// The set is pinned empty, so that the generated HLSL of each row is also shown to compile.
+    /// </remarks>
+    [TestMethod]
+    [DataRow(
+        "StaticFieldInitializersInOneDirectionTests",
+        """
+        internal static class A
+        {
+            public static readonly float X = B.Y + 1;
+        }
+
+        internal static class B
+        {
+            public static readonly float Y = 3.0f;
+        }
+        """,
+        "this.buffer[0] = A.X;")]
+    [DataRow(
+        "StaticFieldInitializersReachingAnotherTypeThroughAMethodAloneTests",
+        """
+        internal static class A
+        {
+            public static readonly float W = 5.0f;
+
+            public static readonly float X = Helper.Read() + 1;
+        }
+
+        internal static class Helper
+        {
+            public static readonly float Amount = 100.0f;
+
+            public static float Read() => A.W;
+        }
+        """,
+        "this.buffer[0] = A.X + Helper.Amount;")]
+    [DataRow(
+        "StaticFieldInitializersOfThreeTypesInOneDirectionTests",
+        """
+        internal static class A
+        {
+            public static readonly float X = B.Y;
+        }
+
+        internal static class B
+        {
+            public static readonly float Y = C.Z;
+        }
+
+        internal static class C
+        {
+            public static readonly float Z = 3.0f;
+        }
+        """,
+        "this.buffer[0] = A.X;")]
+    public void StaticFieldInitializersWithoutACycleAcrossTypesAreNotDiagnosed(string assemblyName, string declarations, string body)
+    {
+        AssertReportsNothing(ShaderWithStaticFields("", body, declarations), assemblyName);
+    }
+
+    /// <summary>
+    /// The message names the field accessed, the type whose initializer accesses it and the type whose
+    /// initializer started that one, in that order. The second row is a cycle of three types, where the type
+    /// accessing the field is not the one the field's own type reached first.
+    /// </summary>
+    /// <remarks>
+    /// The count and the location cannot tell the three names apart, so the messages are read. Three wrong
+    /// reports would pass the count of the three-type row above, which is what the second row is for.
+    /// </remarks>
+    [TestMethod]
+    [DataRow(
+        "StaticFieldInitializerCycleAttributionTests",
+        """
+        internal static class A
+        {
+            public static readonly float W = 5.0f;
+
+            public static readonly float X = B.Y + 1;
+        }
+
+        internal static class B
+        {
+            public static readonly float Y = A.W * 2;
+        }
+        """,
+        "this.buffer[0] = B.Y + A.X;",
+        "W in B from A, Y in A from B")]
+    [DataRow(
+        "StaticFieldInitializerCycleOfThreeAttributionTests",
+        """
+        internal static class A
+        {
+            public static readonly float X = B.Y + 1;
+        }
+
+        internal static class B
+        {
+            public static readonly float Y = C.Z + 1;
+        }
+
+        internal static class C
+        {
+            public static readonly float Z = A.X + 1;
+        }
+        """,
+        "this.buffer[0] = A.X;",
+        "X in C from A, Y in A from B, Z in B from C")]
+    public void AStaticFieldInitializerCycleAcrossTypesIsAttributedToBothTypes(string assemblyName, string declarations, string body, string expected)
+    {
+        string[] attributions = [.. RunDiagnostics(ShaderWithStaticFields("", body, declarations), assemblyName)
+            .Where(static diagnostic => diagnostic.Id == "CMPW0132")
+            .Select(static diagnostic => Regex.Match(diagnostic.GetMessage(), @"field \S*?(\w+) is accessed by a static field initializer of \S*?(\w+), which a static field initializer of \S*?(\w+) reaches"))
+            .Select(static match => $"{match.Groups[1].Value} in {match.Groups[2].Value} from {match.Groups[3].Value}")
+            .Order()];
+
+        Assert.AreEqual(expected, string.Join(", ", attributions));
     }
 
     /// <summary>
