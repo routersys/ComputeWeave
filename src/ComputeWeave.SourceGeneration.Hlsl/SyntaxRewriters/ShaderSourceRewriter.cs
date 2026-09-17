@@ -711,6 +711,15 @@ internal sealed partial class ShaderSourceRewriter(
                     TrackKnownMethodInvocation(metadataName);
 
 #if D3D12_SOURCE_GENERATOR
+                    // Special case: the intrinsics of the pixel stage the shared Hlsl type declares are refused
+                    // under cs_6_0, so the call is refused before the compiler is handed it. Direct2D shaders use
+                    // them legitimately, so this is excluded from that generator by the compilation symbol, which
+                    // is what keeps it away from a pixel shader in a project referencing both products.
+                    if (ReportUnsupportedIntrinsic(node, metadataName, method))
+                    {
+                        return updatedNode;
+                    }
+
                     // Special case: an intrinsic that writes through an out parameter terminates DXC on two
                     // shapes of matrix argument, so the call is refused before the compiler is handed it.
                     // Direct2D shaders are compiled with FXC, which does not have the defect, so this is
