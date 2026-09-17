@@ -88,15 +88,15 @@ public class Test_D2DPixelShaderDescriptorGenerator_RefusedConstructs
     /// A pixel shader the rewriter accepts and FXC refuses.
     /// </summary>
     /// <remarks>
-    /// A thread synchronization is what the pixel shader profile refuses, and the rewriter maps the intrinsic
-    /// like any other, so a refusal is the only thing that keeps a shader from reaching FXC. Without this row,
-    /// removing the forwarding outright would leave every row above passing.
+    /// FXC refuses abort in the library it compiles when linking is enabled, which the default options do, and
+    /// the rewriter maps the intrinsic like any other, so a refusal is the only thing that keeps a shader from
+    /// reaching FXC. Without this row, removing the forwarding outright would leave every row above passing.
     /// </remarks>
     [TestMethod]
     public void AnInputTheRewriterAcceptsCarriesTheCompilerFailure()
     {
         ImmutableArray<Diagnostic> reported = CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.GetReportedDiagnostics(
-            Shader("Hlsl.GroupMemoryBarrierWithGroupSync(); k += 1;", isUnsafe: false));
+            Shader("Hlsl.Abort(); k += 1;", isUnsafe: false));
 
         Assert.AreEqual("CMPWD2D0034", Ids(reported));
     }
@@ -105,9 +105,9 @@ public class Test_D2DPixelShaderDescriptorGenerator_RefusedConstructs
     /// A pixel shader carrying syntax the accepted set does not cover.
     /// </summary>
     /// <remarks>
-    /// The report refuses the input, so the shader never reaches FXC. The body carries a thread synchronization,
-    /// which the pixel shader profile cannot express, so FXC would answer for it were it handed the shader: what
-    /// the row reads is the refusal arriving alone, and not a body the compiler happens to accept.
+    /// The report refuses the input, so the shader never reaches FXC. The body carries an abort, which FXC refuses
+    /// in the library it compiles when linking is enabled, so FXC would answer for it were it handed the shader:
+    /// what the row reads is the refusal arriving alone, and not a body the compiler happens to accept.
     /// </remarks>
     [TestMethod]
     public void AReportForSyntaxWithNoVerdictRefusesTheInput()
@@ -121,7 +121,7 @@ public class Test_D2DPixelShaderDescriptorGenerator_RefusedConstructs
 
                 done: v += 1;
 
-                Hlsl.GroupMemoryBarrierWithGroupSync();
+                Hlsl.Abort();
 
                 k += (int)v;
                 """,
