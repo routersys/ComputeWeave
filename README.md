@@ -297,7 +297,7 @@ ReadOnlyMemory<byte> bytecode = D2D1PixelShader.LoadBytecode<DifferenceEffect>()
 ReadOnlyMemory<byte> buffer = D2D1PixelShader.GetConstantBuffer(new DifferenceEffect(1));
 ```
 
-The declarations are checked by analyzers that report 102 diagnostics with the `CMPWD2D` prefix. Shaders are compiled to DXBC with FXC, which is what Direct2D accepts; `d3dcompiler_47.dll` ships with Windows, so the package bundles no compiler of its own.
+The declarations are checked by analyzers that report 103 diagnostics with the `CMPWD2D` prefix. Shaders are compiled to DXBC with FXC, which is what Direct2D accepts; `d3dcompiler_47.dll` ships with Windows, so the package bundles no compiler of its own.
 
 ---
 
@@ -477,6 +477,7 @@ The companion Direct2D package reaches the same end by a different route, so do 
 - A shader that reaches `AllMemoryBarrierWithGroupSync`, `DeviceMemoryBarrierWithGroupSync` or `GroupMemoryBarrierWithGroupSync` can only be dispatched over an extent that is a whole multiple of its thread group size on every axis. The dispatch rounds the extent up to whole groups and the entry point runs the body only for the threads inside the requested range, so a partial group would leave some of its threads short of the barrier. The generator decides this from the barriers the body reaches and marks such a shader by writing `IComputeShaderDescriptor<T>.RequiresFullThreadGroups` as `true`, so there is nothing to declare by hand and a shader that grows a barrier is marked by the next build. The dispatch reads that mark and rejects a partial extent with `ArgumentException`. The base library does not reject it. `ThreadGroupAlignment.AlignX`, `AlignY` and `AlignZ` answer with the extent to ask for, and leave the extent of a shader that carries no such requirement as it is. The threads the rounding adds run the body over coordinates past the extent being worked on, so a shader dispatched over a rounded extent has to hold for them. A dispatch taking fewer than three extents fixes the ones it does not take at one, so a shader whose thread group is deeper than one thread on those axes has to be given them as well.
 - `ComputeWeave.Dxc` bundles `dxcompiler.dll` and `dxil.dll` and therefore runs only in x64 and Arm64 processes.
 - `Hlsl.Abort` cannot be used in a Direct2D effect. Effect linking, which the default compile options request, builds the shader as a library, and FXC rejects `abort` there; an effect built without that library compiles but then fails to load.
+- The memory barriers cannot be used in a Direct2D pixel shader, which has no thread group to synchronize. The generator reports `CMPWD2D0102` at the call for the five FXC refuses under every pixel shader profile; `Hlsl.DeviceMemoryBarrier` compiles under `ps_4_0` and above and is left to FXC, which refuses it under the level 9 profiles.
 
 ---
 

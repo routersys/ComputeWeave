@@ -1848,4 +1848,65 @@ public class Test_D2DPixelShaderDescriptorGenerator_Diagnostics
             new[] { "Even(value)", "Odd(value)" },
             diagnostics.Select(static diagnostic => diagnostic.Location.SourceTree!.GetText().ToString(diagnostic.Location.SourceSpan)).Order().ToArray());
     }
+
+    /// <summary>
+    /// A thread synchronization intrinsic, which the pixel shader profiles refuse. Before this the failure landed
+    /// on the shader type as the forwarded compiler error, naming the intrinsic but not the call.
+    /// </summary>
+    /// <remarks>
+    /// The five names are the ones FXC refuses under <c>ps_5_0</c>, which was measured one by one. The compute
+    /// generator refuses the intrinsics of the pixel stage through an analyzer of its own, so nothing here
+    /// answers for that side.
+    /// </remarks>
+    [TestMethod]
+    [DataRow("Hlsl.AllMemoryBarrier();")]
+    [DataRow("Hlsl.AllMemoryBarrierWithGroupSync();")]
+    [DataRow("Hlsl.DeviceMemoryBarrierWithGroupSync();")]
+    [DataRow("Hlsl.GroupMemoryBarrier();")]
+    [DataRow("Hlsl.GroupMemoryBarrierWithGroupSync();")]
+    public void AThreadSynchronizationIntrinsicIsDiagnosed(string call)
+    {
+        CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnostics(ShaderWithStatement(call), "CMPWD2D0102");
+    }
+
+    /// <summary>
+    /// The one barrier the pixel shader profiles accept, left alone so that the rows above answer for the profile
+    /// refusing the call and not for the intrinsic being a barrier. The shader is handed to FXC and compiles.
+    /// </summary>
+    [TestMethod]
+    public void ADeviceMemoryBarrierIsNotDiagnosed()
+    {
+        CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnostics(ShaderWithStatement("Hlsl.DeviceMemoryBarrier();"));
+    }
+
+    /// <summary>
+    /// Builds a pixel shader around one statement written ahead of the return.
+    /// </summary>
+    /// <param name="statement">The statement to put in the shader body.</param>
+    /// <returns>The source of a pixel shader carrying <paramref name="statement"/>.</returns>
+    private static string ShaderWithStatement(string statement)
+    {
+        return $$"""
+            using ComputeWeave;
+            using ComputeWeave.D2D1;
+            using float4 = global::ComputeWeave.Float4;
+
+            namespace MyNamespace;
+
+            [D2DInputCount(0)]
+            [D2DShaderProfile(D2D1ShaderProfile.PixelShader50)]
+            [D2DGeneratedPixelShaderDescriptor]
+            internal readonly partial struct MyShader : ID2D1PixelShader
+            {
+                private readonly float time;
+
+                public float4 Execute()
+                {
+                    {{statement}}
+
+                    return this.time;
+                }
+            }
+            """;
+    }
 }
