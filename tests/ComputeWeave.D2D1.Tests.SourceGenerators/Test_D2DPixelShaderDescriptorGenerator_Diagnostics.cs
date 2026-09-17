@@ -1299,7 +1299,7 @@ public class Test_D2DPixelShaderDescriptorGenerator_Diagnostics
             }
             """;
 
-        CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnosticIsReported(source, "CMPWD2D0102");
+        CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnosticIsReported(source, "CMPWD2D0103");
     }
 
     /// <summary>
