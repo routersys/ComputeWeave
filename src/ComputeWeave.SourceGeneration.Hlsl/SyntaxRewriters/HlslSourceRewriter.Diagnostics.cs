@@ -1,3 +1,4 @@
+using System.Linq;
 using ComputeWeave.SourceGeneration.Extensions;
 using ComputeWeave.SourceGeneration.Mappings;
 using Microsoft.CodeAnalysis;
@@ -301,6 +302,61 @@ partial class HlslSourceRewriter
             }
 
             return true;
+        }
+    }
+
+    /// <summary>
+    /// Reports a member of the shader accessed through a qualifier where a local or a parameter of its name hides it.
+    /// </summary>
+    /// <param name="node">The access as the author wrote it.</param>
+    /// <param name="member">The member of the shader the access resolves to.</param>
+    /// <remarks>
+    /// <para>
+    /// A member of the shader is written out under its name alone, whatever qualifier the access carried, the
+    /// generated HLSL declaring it at the top level: <see langword="this"/> is dropped from a field, and the type
+    /// name from a static field and from a method. HLSL resolves a name by scope alone, so a local or a parameter
+    /// of that name in the function the access is written in hides the member there, and the shader reads the
+    /// local where C# read the member, with nothing reporting it.
+    /// </para>
+    /// <para>
+    /// What is asked is what the generated HLSL declares ahead of the access in the same function. A parameter
+    /// always is. A local declared after the access is not, HLSL scoping it from its declaration, so the access
+    /// reads the member there. One declared in an argument is written ahead of the whole body of the function
+    /// holding it by the rewriting that hoists it, so it counts wherever it was written, even in a block the
+    /// access is outside of. A local of an enclosing declaration is left out, a local function being written
+    /// out as a function of its own.
+    /// </para>
+    /// </remarks>
+    protected void ReportShaderMemberHiddenByLocal(SyntaxNode node, ISymbol member)
+    {
+        ISymbol? function = SemanticModel.For(node).GetEnclosingSymbol(node.SpanStart, CancellationToken);
+
+        foreach (ISymbol symbol in SemanticModel.For(node).LookupSymbols(node.SpanStart, name: member.Name))
+        {
+            if (!SymbolEqualityComparer.Default.Equals(symbol.ContainingSymbol, function))
+            {
+                continue;
+            }
+
+            if (symbol is IParameterSymbol ||
+                (symbol is ILocalSymbol local && local.DeclaringSyntaxReferences[0].Span.Start < node.SpanStart))
+            {
+                Diagnostics.Add(ShaderMemberHiddenByLocal, node, member, member.Name);
+
+                return;
+            }
+        }
+
+        // A declaration in an argument is out of scope where C# would not see it, so it is read from the syntax
+        // of the function rather than from the lookup, descending into no nested function, which hoists its own
+        SyntaxNode? body = node.Ancestors().FirstOrDefault(static ancestor => ancestor is LocalFunctionStatementSyntax or BaseMethodDeclarationSyntax);
+
+        if (body is not null &&
+            body.DescendantNodes(descendant => descendant == body || descendant is not LocalFunctionStatementSyntax)
+                .OfType<DeclarationExpressionSyntax>()
+                .Any(declaration => declaration.Designation is SingleVariableDesignationSyntax designation && designation.Identifier.ValueText == member.Name))
+        {
+            Diagnostics.Add(ShaderMemberHiddenByLocal, node, member, member.Name);
         }
     }
 
