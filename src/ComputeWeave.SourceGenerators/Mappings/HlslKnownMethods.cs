@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 
 namespace ComputeWeave.SourceGeneration.Mappings;
 
@@ -22,6 +23,37 @@ partial class HlslKnownMethods
             "ComputeWeave.Hlsl.AllMemoryBarrierWithGroupSync" or
             "ComputeWeave.Hlsl.DeviceMemoryBarrierWithGroupSync" or
             "ComputeWeave.Hlsl.GroupMemoryBarrierWithGroupSync";
+    }
+
+    /// <summary>
+    /// Gets the reason a method name, previously matched with <see cref="TryGetMappedName(string, out string?)"/>,
+    /// cannot be used in a compute shader, if it cannot.
+    /// </summary>
+    /// <param name="name">The fully qualified metadata name.</param>
+    /// <param name="reason">The reason the intrinsic cannot be used, when it cannot.</param>
+    /// <returns>Whether the intrinsic cannot be used in a compute shader.</returns>
+    /// <remarks>
+    /// The shared <c>Hlsl</c> type declares intrinsics of the pixel stage as well, a pixel shader being written with
+    /// the same type. The nine here were measured to fail under <c>cs_6_0</c>: DXC does not accept the abort, a compute
+    /// shader has no pixel to discard, and the derivatives need shader model 6.6.
+    /// </remarks>
+    public static bool TryGetUnsupportedReason(string name, [NotNullWhen(true)] out string? reason)
+    {
+        reason = name switch
+        {
+            "ComputeWeave.Hlsl.Abort" => "the abort intrinsic is not accepted by the DXC compiler",
+            "ComputeWeave.Hlsl.Clip" => "the clip intrinsic discards a pixel, and a compute shader has no pixel to discard",
+            "ComputeWeave.Hlsl.DerivativeOfDx" or
+            "ComputeWeave.Hlsl.DerivativeOfDxHighPrecision" or
+            "ComputeWeave.Hlsl.DerivativeOfDxLowPrecision" or
+            "ComputeWeave.Hlsl.DerivativeOfDy" or
+            "ComputeWeave.Hlsl.DerivativeOfDyHighPrecision" or
+            "ComputeWeave.Hlsl.DerivativeOfDyLowPrecision" or
+            "ComputeWeave.Hlsl.Fwidth" => "derivatives in a compute shader require shader model 6.6, while shaders are compiled as cs_6_0",
+            _ => null
+        };
+
+        return reason is not null;
     }
 
     /// <inheritdoc/>

@@ -216,6 +216,12 @@ internal sealed partial class StaticFieldRewriter(
                 TrackKnownMethodInvocation(metadataName);
 
 #if D3D12_SOURCE_GENERATOR
+                // Refuse an intrinsic of the pixel stage (see ShaderSourceRewriter for more info)
+                if (ReportUnsupportedIntrinsic(node, metadataName, method))
+                {
+                    return updatedNode;
+                }
+
                 // Refuse a matrix on an intrinsic with an out parameter (see ShaderSourceRewriter for more info)
                 if (ReportMatrixOnIntrinsicWithOutParameter(node, method))
                 {
