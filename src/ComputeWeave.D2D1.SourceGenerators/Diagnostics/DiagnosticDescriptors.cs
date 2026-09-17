@@ -1469,7 +1469,7 @@ partial class DiagnosticDescriptors
     /// </para>
     /// </summary>
     public static readonly DiagnosticDescriptor StaticFieldAssignedByStaticConstructor = new(
-        id: "CMPWD2D0102",
+        id: "CMPWD2D0103",
         title: "Static field assigned by a static constructor",
         messageFormat: "The static field {0} is assigned by the static constructor of {1}, which the generated HLSL does not run (the field holds the value of its initializer there, or zero without one)",
         category: "ComputeWeave.D2D1.Shaders",
