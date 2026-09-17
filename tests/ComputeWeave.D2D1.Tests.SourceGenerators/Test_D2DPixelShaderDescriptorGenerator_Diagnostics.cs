@@ -706,6 +706,73 @@ public class Test_D2DPixelShaderDescriptorGenerator_Diagnostics
     }
 
     /// <summary>
+    /// A captured field read through <see langword="this"/>, with a local of its name declared ahead of it. The
+    /// check is shared with the compute generator, so what this pins is that the pixel shader generator answers
+    /// with its own identifier.
+    /// </summary>
+    [TestMethod]
+    public void ALocalHidingACapturedFieldIsReported()
+    {
+        const string source = """
+            using ComputeWeave;
+            using ComputeWeave.D2D1;
+            using float4 = global::ComputeWeave.Float4;
+
+            namespace MyNamespace;
+
+            [D2DInputCount(0)]
+            [D2DShaderProfile(D2D1ShaderProfile.PixelShader50)]
+            [D2DGeneratedPixelShaderDescriptor]
+            internal readonly partial struct MyShader : ID2D1PixelShader
+            {
+                private readonly float time;
+
+                public float4 Execute()
+                {
+                    float time = 3.0f;
+
+                    return new float4(this.time + time, 0, 0, 1);
+                }
+            }
+            """;
+
+        CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnostics(source, "CMPWD2D0104");
+    }
+
+    /// <summary>
+    /// The same read with the local declared after it, which hides nothing in HLSL, so the shader compiles.
+    /// </summary>
+    [TestMethod]
+    public void ALocalDeclaredAfterTheAccessIsNotReported()
+    {
+        const string source = """
+            using ComputeWeave;
+            using ComputeWeave.D2D1;
+            using float4 = global::ComputeWeave.Float4;
+
+            namespace MyNamespace;
+
+            [D2DInputCount(0)]
+            [D2DShaderProfile(D2D1ShaderProfile.PixelShader50)]
+            [D2DGeneratedPixelShaderDescriptor]
+            internal readonly partial struct MyShader : ID2D1PixelShader
+            {
+                private readonly float time;
+
+                public float4 Execute()
+                {
+                    float scale = this.time;
+                    float time = 3.0f;
+
+                    return new float4(scale + time, 0, 0, 1);
+                }
+            }
+            """;
+
+        CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnostics(source);
+    }
+
+    /// <summary>
     /// An attribute of the author's own, carrying syntax the set has no verdict for, on an imported method.
     /// </summary>
     /// <remarks>
