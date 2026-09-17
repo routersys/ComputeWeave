@@ -557,6 +557,9 @@ internal sealed partial class ShaderSourceRewriter(
                     // really useful anyway given that those fields are readonly, so less likely to cause observable conflicts).
                     if (SymbolEqualityComparer.Default.Equals(fieldOperation.Field.ContainingType, ShaderType))
                     {
+                        // The name alone is what is written, so a local of that name would hide the field (see HlslSourceRewriter)
+                        ReportShaderMemberHiddenByLocal(node, fieldOperation.Field);
+
                         return updatedNode.Name;
                     }
 
@@ -574,6 +577,9 @@ internal sealed partial class ShaderSourceRewriter(
                     // is often the case if they're accessed from external types. So we just map the name and use that expression.
                     if (SymbolEqualityComparer.Default.Equals(fieldOperation.Field.ContainingType, ShaderType))
                     {
+                        // The same holds here, the type name being dropped (see HlslSourceRewriter)
+                        ReportShaderMemberHiddenByLocal(node, fieldOperation.Field);
+
                         _ = HlslKnownKeywords.TryGetMappedName(fieldOperation.Field.Name, out string? mappedFieldName);
 
                         return IdentifierName(mappedFieldName ?? fieldOperation.Field.Name);

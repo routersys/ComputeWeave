@@ -1577,4 +1577,24 @@ partial class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "The shared Hlsl type declares six memory barriers for the compute shaders, and a pixel shader is written with the same type. A pixel shader runs with no thread group to synchronize, so FXC refuses five of them under every pixel shader profile, while DeviceMemoryBarrier compiles under ps_4_0, ps_4_1 and ps_5_0 and is left alone; the two level 9 profiles refuse it as well, which the forwarded compiler error still reports, the rewriting not knowing the profile. Without this the call is written out as it stands and the shader compiler answers at the shader type rather than at the call. The compute generator refuses the intrinsics of the pixel stage the same way, so each of the two products refuses what its stage lacks.",
         helpLinkUri: "https://github.com/routersys/ComputeWeave");
+
+    /// <summary>
+    /// Gets a <see cref="DiagnosticDescriptor"/> for a member of the shader accessed through a qualifier where a local or a parameter of its name hides it.
+    /// <para>
+    /// Format: <c>"The member {0} cannot be accessed through a qualifier here in a D2D1 pixel shader (the generated HLSL drops the qualifier, and a local variable or a parameter named '{1}' declared in the same function would be read instead)"</c>.
+    /// </para>
+    /// </summary>
+    /// <remarks>
+    /// This is the Direct2D counterpart of the compute diagnostic. The rewriting that drops the qualifier is
+    /// shared, so leaving one of the two out would refuse the same access on one path and not the other.
+    /// </remarks>
+    public static readonly DiagnosticDescriptor ShaderMemberHiddenByLocal = new(
+        id: "CMPWD2D0104",
+        title: "Shader member hidden by a local",
+        messageFormat: "The member {0} cannot be accessed through a qualifier here in a D2D1 pixel shader (the generated HLSL drops the qualifier, and a local variable or a parameter named '{1}' declared in the same function would be read instead)",
+        category: "ComputeWeave.D2D1.Shaders",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "A member of the shader is written out under its name alone, whatever qualifier the access carried, the generated HLSL declaring it at the top level: 'this' is dropped from a field, and the type name from a static field and from a method. HLSL resolves a name by scope alone, so a local or a parameter of that name in the function the access is written in hides the member there. Without this a field read through a qualifier compiles and reads the local, so the shader computes a value C# never produces with nothing reporting it, and a method called through one fails in the shader compiler naming generated code. What is refused is an access whose qualifier would be dropped where the generated HLSL declares a local or a parameter of the same name ahead of it in the same function: a parameter, a local declared before the access, and a local declared in an argument, which the rewriting hoists ahead of the body. A local declared after the access, one of an enclosing declaration, a constant and a local function are left alone, the first two being out of scope at the access in HLSL and the last two being written out under names of their own.",
+        helpLinkUri: "https://github.com/routersys/ComputeWeave");
 }

@@ -6,3 +6,4 @@
 Rule ID | Category | Severity | Notes
 --------|----------|----------|-------
 CMPW0129 | ComputeWeave.Shaders | Error | [Documentation](https://github.com/routersys/ComputeWeave)
+CMPW0131 | ComputeWeave.Shaders | Error | [Documentation](https://github.com/routersys/ComputeWeave)
