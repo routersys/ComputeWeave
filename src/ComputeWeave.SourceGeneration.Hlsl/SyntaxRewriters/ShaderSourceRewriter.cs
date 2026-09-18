@@ -820,6 +820,10 @@ internal sealed partial class ShaderSourceRewriter(
 
                     return updatedNode.WithExpression(IdentifierName(methodIdentifier));
                 }
+
+                // A static method of the shader is written out by the generator itself, so the call is
+                // written the way it writes the method out, under its name alone
+                return VisitShaderMethodInvocation(updatedNode);
             }
             else
             {
@@ -868,6 +872,13 @@ internal sealed partial class ShaderSourceRewriter(
                     }
 
                     return updatedNode;
+                }
+
+                // An instance method of the shader is written out the way a static one is, so a call
+                // through 'this' is renamed the same way
+                if (SymbolEqualityComparer.Default.Equals(ShaderType, method.ContainingType))
+                {
+                    return VisitShaderMethodInvocation(updatedNode);
                 }
             }
         }

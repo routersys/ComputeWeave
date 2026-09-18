@@ -248,11 +248,15 @@ internal sealed partial class StaticFieldRewriter(
             // A static method with no mapping is imported by rewriting its declaration, the same way the
             // shader body imports one. HLSL accepts a call in a static field initializer because every
             // forward declaration is written ahead of the static fields. A method on the shader type is
-            // left alone, as the generator writes those out through its own path.
-            if (method.IsStatic &&
-                !SymbolEqualityComparer.Default.Equals(ShaderType, method.ContainingType))
+            // written out by the generator itself, so the call is written the way it writes the method out
+            if (method.IsStatic)
             {
-                return VisitImportedStaticMethodInvocation(node, updatedNode, method);
+                if (!SymbolEqualityComparer.Default.Equals(ShaderType, method.ContainingType))
+                {
+                    return VisitImportedStaticMethodInvocation(node, updatedNode, method);
+                }
+
+                return VisitShaderMethodInvocation(updatedNode);
             }
         }
 
