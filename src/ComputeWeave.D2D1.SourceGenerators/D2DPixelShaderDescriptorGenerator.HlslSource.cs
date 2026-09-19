@@ -346,6 +346,7 @@ partial class D2DPixelShaderDescriptorGenerator
             CancellationToken token)
         {
             using ImmutableArrayBuilder<HlslStaticField> declared = new();
+            List<IFieldSymbol> declaredFields = [];
 
             foreach (ISymbol memberSymbol in structDeclarationSymbol.GetMembers())
             {
@@ -378,6 +379,7 @@ partial class D2DPixelShaderDescriptorGenerator
                         typeDeclaration,
                         assignmentExpression,
                         HlslDefinitionsSyntaxProcessor.GetStaticFieldOrder(staticFieldDefinitions)));
+                    declaredFields.Add(fieldSymbol);
 
                     // An initializer may import a method that declares a local function, which HLSL cannot
                     // nest, so the ones lifted out of it are carried up to be written like any other
@@ -392,6 +394,18 @@ partial class D2DPixelShaderDescriptorGenerator
             // is rewritten (same as in the DX12 generator)
             HlslDefinitionsSyntaxProcessor.ReportStaticFieldAccessesBeforeInitialization(
                 structDeclarationSymbol,
+                staticFieldDefinitions,
+                semanticModel,
+                diagnostics,
+                token);
+
+            // A static field a static constructor assigns is reported (same as in the DX12 generator)
+            HlslDefinitionsSyntaxProcessor.ReportStaticFieldsAssignedByAStaticConstructor(
+                structDeclarationSymbol,
+                declaredFields,
+                staticMethods,
+                instanceMethods,
+                constructors,
                 staticFieldDefinitions,
                 semanticModel,
                 diagnostics,

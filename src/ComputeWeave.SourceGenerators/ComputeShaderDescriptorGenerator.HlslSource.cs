@@ -378,6 +378,7 @@ partial class ComputeShaderDescriptorGenerator
             CancellationToken token)
         {
             using ImmutableArrayBuilder<HlslStaticField> declared = new();
+            List<IFieldSymbol> declaredFields = [];
 
             foreach (ISymbol memberSymbol in structDeclarationSymbol.GetMembers())
             {
@@ -417,6 +418,7 @@ partial class ComputeShaderDescriptorGenerator
                         typeDeclaration,
                         assignmentExpression,
                         HlslDefinitionsSyntaxProcessor.GetStaticFieldOrder(staticFieldDefinitions)));
+                    declaredFields.Add(fieldSymbol);
 
                     // An initializer may import a method that declares a local function, which HLSL cannot
                     // nest, so the ones lifted out of it are carried up to be written like any other
@@ -431,6 +433,19 @@ partial class ComputeShaderDescriptorGenerator
             // is rewritten, the walk covering the declarations a rewriting does not pass through again
             HlslDefinitionsSyntaxProcessor.ReportStaticFieldAccessesBeforeInitialization(
                 structDeclarationSymbol,
+                staticFieldDefinitions,
+                semanticModel,
+                diagnostics,
+                token);
+
+            // A static constructor C# would run is not written into the generated HLSL, so a static field it
+            // assigns is reported, the walk covering the constructors of every type the rewriting touched
+            HlslDefinitionsSyntaxProcessor.ReportStaticFieldsAssignedByAStaticConstructor(
+                structDeclarationSymbol,
+                declaredFields,
+                staticMethods,
+                instanceMethods,
+                constructors,
                 staticFieldDefinitions,
                 semanticModel,
                 diagnostics,

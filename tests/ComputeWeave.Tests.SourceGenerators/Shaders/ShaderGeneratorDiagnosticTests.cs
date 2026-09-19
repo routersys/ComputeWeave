@@ -1073,6 +1073,194 @@ public class ShaderGeneratorDiagnosticTests
         Assert.AreEqual("Second in First, Third in Second", string.Join(", ", attributions));
     }
 
+    /// <summary>
+    /// A static field a static constructor assigns: a field of another type, with or without an initializer of
+    /// its own, assigned directly, through a method the constructor calls or through an out argument; a field
+    /// of the shader assigned by the shader's own static constructor; and a field of the shader assigned by the
+    /// static constructor of a type the body imports a method from. C# runs the constructor when its type is
+    /// first touched, whereas the generated HLSL runs none and reads the initializer's value, or zero without one.
+    /// </summary>
+    [TestMethod]
+    [DataRow(
+        "ExternalStaticFieldAssignedByAStaticConstructorTests",
+        """
+        internal static class Helper
+        {
+            public static readonly float Amount;
+
+            static Helper()
+            {
+                Amount = 5.0f;
+            }
+        }
+        """,
+        "internal static readonly float Value = Helper.Amount;",
+        "this.buffer[0] = Value;")]
+    [DataRow(
+        "ExternalMutableStaticFieldAssignedByAStaticConstructorTests",
+        """
+        internal static class Helper
+        {
+            public static float Amount;
+
+            static Helper()
+            {
+                Amount = 5.0f;
+            }
+        }
+        """,
+        "internal static readonly float Value = Helper.Amount;",
+        "this.buffer[0] = Value;")]
+    [DataRow(
+        "ExternalInitializedStaticFieldOverwrittenByAStaticConstructorTests",
+        """
+        internal static class Helper
+        {
+            public static readonly float Amount = 2.0f;
+
+            static Helper()
+            {
+                Amount = 5.0f;
+            }
+        }
+        """,
+        "internal static readonly float Value = Helper.Amount;",
+        "this.buffer[0] = Value;")]
+    [DataRow(
+        "ExternalStaticFieldAssignedByAMethodAStaticConstructorCallsTests",
+        """
+        internal static class Helper
+        {
+            public static float Amount;
+
+            static Helper()
+            {
+                Fill();
+            }
+
+            private static void Fill()
+            {
+                Amount = 5.0f;
+            }
+        }
+        """,
+        "internal static readonly float Value = Helper.Amount;",
+        "this.buffer[0] = Value;")]
+    [DataRow(
+        "ExternalStaticFieldAssignedThroughAnOutArgumentInAStaticConstructorTests",
+        """
+        internal static class Helper
+        {
+            public static readonly float Amount;
+
+            static Helper()
+            {
+                Fill(out Amount);
+            }
+
+            private static void Fill(out float target)
+            {
+                target = 5.0f;
+            }
+        }
+        """,
+        "internal static readonly float Value = Helper.Amount;",
+        "this.buffer[0] = Value;")]
+    [DataRow(
+        "ShaderStaticFieldAssignedByTheShaderStaticConstructorTests",
+        "",
+        """
+        private static readonly float Value;
+
+            static Shader()
+            {
+                Value = 5.0f;
+            }
+        """,
+        "this.buffer[0] = Value;")]
+    [DataRow(
+        "ShaderStaticFieldAssignedByTheStaticConstructorOfAnImportedMethodTypeTests",
+        """
+        internal static class Helper
+        {
+            static Helper()
+            {
+                Shader.Value = 5.0f;
+            }
+
+            public static float Go() => 2.0f;
+        }
+        """,
+        "internal static float Value = 1.0f;",
+        "this.buffer[0] = Helper.Go() + Value;")]
+    public void AStaticFieldAssignedByAStaticConstructorIsDiagnosed(string assemblyName, string declarations, string members, string body)
+    {
+        AssertReportsAt(ShaderWithStaticFields(members, body, declarations), assemblyName, "CMPW0130", 1);
+    }
+
+    /// <summary>
+    /// The static constructors that leave the fields the generated HLSL declares alone: one reading the field,
+    /// one assigning a field of its type the shader does not use, and one of a type the shader imports a method
+    /// from that assigns nothing the shader uses.
+    /// </summary>
+    /// <remarks>
+    /// The set is pinned empty rather than the identifier counted, so the rows also show the shader compiles.
+    /// </remarks>
+    [TestMethod]
+    [DataRow(
+        "ExternalStaticFieldReadByAStaticConstructorTests",
+        """
+        internal static class Helper
+        {
+            public static readonly float Amount = 2.0f;
+
+            static Helper()
+            {
+                _ = Amount;
+            }
+        }
+        """,
+        "internal static readonly float Value = Helper.Amount;",
+        "this.buffer[0] = Value;")]
+    [DataRow(
+        "ExternalStaticFieldBesideOneAStaticConstructorAssignsTests",
+        """
+        internal static class Helper
+        {
+            public static readonly float Amount = 2.0f;
+
+            public static float Other;
+
+            static Helper()
+            {
+                Other = 5.0f;
+            }
+        }
+        """,
+        "internal static readonly float Value = Helper.Amount;",
+        "this.buffer[0] = Value;")]
+    [DataRow(
+        "ImportedMethodTypeWithAStaticConstructorAssigningNothingTheShaderUsesTests",
+        """
+        internal static class Helper
+        {
+            public static float Other;
+
+            static Helper()
+            {
+                Other = 5.0f;
+            }
+
+            public static float Go() => 2.0f;
+        }
+        """,
+        "internal static readonly float Value = 1.0f;",
+        "this.buffer[0] = Helper.Go() + Value;")]
+    public void AStaticConstructorLeavingTheDeclaredStaticFieldsAloneIsNotDiagnosed(string assemblyName, string declarations, string members, string body)
+    {
+        AssertReportsNothing(ShaderWithStaticFields(members, body, declarations), assemblyName);
+    }
+
     private static string ShaderWithStaticFields(string members, string body = "this.buffer[0] = Value;", string declarations = "")
     {
         return $$"""
