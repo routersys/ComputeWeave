@@ -1463,6 +1463,22 @@ partial class DiagnosticDescriptors
         helpLinkUri: "https://github.com/routersys/ComputeWeave");
 
     /// <summary>
+    /// Gets a <see cref="DiagnosticDescriptor"/> for a static field assigned by a static constructor.
+    /// <para>
+    /// Format: <c>"The static field {0} is assigned by the static constructor of {1}, which the generated HLSL does not run (the field holds the value of its initializer there, or zero without one)"</c>.
+    /// </para>
+    /// </summary>
+    public static readonly DiagnosticDescriptor StaticFieldAssignedByStaticConstructor = new(
+        id: "CMPWD2D0103",
+        title: "Static field assigned by a static constructor",
+        messageFormat: "The static field {0} is assigned by the static constructor of {1}, which the generated HLSL does not run (the field holds the value of its initializer there, or zero without one)",
+        category: "ComputeWeave.D2D1.Shaders",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "C# runs the static constructor of a type when the type is first touched, after the initializers of its static fields, and a static field the constructor assigns holds that value from then on. The generated HLSL runs no static constructor and declares the field with the value of its initializer, or with no initializer, which the shader compiler reads as zero, so the shader computes a value C# never produces and neither compiler reports anything. The static constructors of the shader type and of every type an imported declaration belongs to are followed through every declaration they reach, and a write to any static field the generated HLSL declares is reported, whichever of those types the constructor belongs to.",
+        helpLinkUri: "https://github.com/routersys/ComputeWeave");
+
+    /// <summary>
     /// Gets a <see cref="DiagnosticDescriptor"/> for an operation whose operands C# widens past the HLSL type set.
     /// <para>
     /// Format: <c>"The operands of this operation are widened to {0}, which is outside the HLSL type set (a signed and an unsigned integer in one operation are widened together, and that widening cannot be written into the generated code, so the operands have to be brought to one type with an explicit conversion)"</c>.

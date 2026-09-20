@@ -33,6 +33,31 @@ public class Test_DiagnosticMetadata
     private static readonly Regex Placeholder = new(@"\{\d+\s*(?:,\s*-?\d+\s*)?(?::[^}]*)?\}");
 
     /// <summary>
+    /// Two diagnostics sharing an identifier are one rule to everything that reads the identifier, from a
+    /// suppression to the release notes, so the second declared reports under the name of the first.
+    /// </summary>
+    /// <remarks>
+    /// The identifiers on this side are taken the same way as on the compute side, the next free one at the time
+    /// a pull request is written, so two pull requests written at the same time take the same one. The release
+    /// tracking analyzer asks only that the identifier be listed in a release, and the counts the documents state
+    /// are of distinct identifiers, so the duplicate is refused here or nowhere.
+    /// </remarks>
+    [TestMethod]
+    public void NoTwoDiagnosticsShareAnIdentifier()
+    {
+        string[] shared =
+        [
+            .. Declared()
+                .GroupBy(static descriptor => descriptor.Id, StringComparer.Ordinal)
+                .Where(static group => group.Count() > 1)
+                .Select(static group => $"{group.Key}: {string.Join(" / ", group.Select(static descriptor => descriptor.Title.ToString()).Order())}")
+                .Order()
+        ];
+
+        Assert.AreEqual(0, shared.Length, string.Join(" | ", shared));
+    }
+
+    /// <summary>
     /// Two diagnostics sharing a title means at least one of them is named after the other.
     /// </summary>
     /// <remarks>
