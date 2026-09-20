@@ -257,7 +257,7 @@ internal sealed partial class StaticFieldRewriter(
                     return VisitImportedStaticMethodInvocation(node, updatedNode, method);
                 }
 
-                return VisitShaderMethodInvocation(updatedNode);
+                return VisitShaderMethodInvocation(node, updatedNode, method);
             }
         }
 

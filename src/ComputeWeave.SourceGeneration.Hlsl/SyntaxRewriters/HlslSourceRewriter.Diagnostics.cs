@@ -315,8 +315,9 @@ partial class HlslSourceRewriter
     /// A member of the shader is written out under its name alone, whatever qualifier the access carried, the
     /// generated HLSL declaring it at the top level: <see langword="this"/> is dropped from a field, and the type
     /// name from a static field and from a method. HLSL resolves a name by scope alone, so a local or a parameter
-    /// of that name in the function the access is written in hides the member there, and the shader reads the
-    /// local where C# read the member, with nothing reporting it.
+    /// of that name in the function the access is written in hides the member there: a field read through the
+    /// qualifier reads the local where C# read the field, with nothing reporting it, and a method called through
+    /// one fails in the shader compiler naming generated code.
     /// </para>
     /// <para>
     /// What is asked is what the generated HLSL declares ahead of the access in the same function. A parameter

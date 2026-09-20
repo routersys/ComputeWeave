@@ -846,18 +846,25 @@ internal abstract partial class HlslSourceRewriter(
     /// <summary>
     /// Rewrites a call to a method of the shader type to name the method alone.
     /// </summary>
+    /// <param name="node">The original <see cref="InvocationExpressionSyntax"/> instance.</param>
     /// <param name="updatedNode">The updated <see cref="InvocationExpressionSyntax"/> instance with tweaked syntax.</param>
+    /// <param name="method">The method of the shader type the call resolves to.</param>
     /// <returns>The invocation, with the qualifier the call was written through dropped.</returns>
     /// <remarks>
     /// Both generators write the methods of the shader type out at the top level under their own names, so a
     /// call qualified with the shader type, with an alias of it or with <see langword="this"/> names something
     /// the generated HLSL never declares. The name is kept as visited rather than read from the symbol, so a
-    /// method named after an HLSL keyword stays mapped the way its declaration is.
+    /// method named after an HLSL keyword stays mapped the way its declaration is. The name alone being what is
+    /// written, a local or a parameter of that name would hide the method, so the access is reported the way a
+    /// field read through a qualifier is (see the diagnostics part of this type). The report is made wherever
+    /// the qualifier is dropped, an initializer having no local and no parameter for it to find.
     /// </remarks>
-    protected static InvocationExpressionSyntax VisitShaderMethodInvocation(InvocationExpressionSyntax updatedNode)
+    protected InvocationExpressionSyntax VisitShaderMethodInvocation(InvocationExpressionSyntax node, InvocationExpressionSyntax updatedNode, IMethodSymbol method)
     {
         if (updatedNode.Expression is MemberAccessExpressionSyntax qualifiedName)
         {
+            ReportShaderMemberHiddenByLocal(node.Expression, method);
+
             return updatedNode.WithExpression(qualifiedName.Name);
         }
 

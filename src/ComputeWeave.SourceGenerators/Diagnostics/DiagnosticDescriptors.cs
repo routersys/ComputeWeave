@@ -1739,13 +1739,13 @@ partial class DiagnosticDescriptors
     /// <summary>
     /// Gets a <see cref="DiagnosticDescriptor"/> for a member of the shader accessed through a qualifier where a local or a parameter of its name hides it.
     /// <para>
-    /// Format: <c>"The member {0} cannot be accessed through a qualifier here in a compute shader (the generated HLSL drops the qualifier, and a local variable or a parameter named '{1}' declared in the same function would be read instead)"</c>.
+    /// Format: <c>"The member {0} cannot be accessed through a qualifier here in a compute shader (the generated HLSL drops the qualifier, and a local variable or a parameter named '{1}' declared in the same function would be resolved instead)"</c>.
     /// </para>
     /// </summary>
     public static readonly DiagnosticDescriptor ShaderMemberHiddenByLocal = new(
         id: "CMPW0131",
         title: "Shader member hidden by a local",
-        messageFormat: "The member {0} cannot be accessed through a qualifier here in a compute shader (the generated HLSL drops the qualifier, and a local variable or a parameter named '{1}' declared in the same function would be read instead)",
+        messageFormat: "The member {0} cannot be accessed through a qualifier here in a compute shader (the generated HLSL drops the qualifier, and a local variable or a parameter named '{1}' declared in the same function would be resolved instead)",
         category: "ComputeWeave.Shaders",
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true,
