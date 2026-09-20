@@ -11,7 +11,7 @@ namespace ComputeWeave.Tests.SourceGenerators.Shaders;
 /// <summary>
 /// A member of the shader accessed through a qualifier where a local or a parameter of the same name is in
 /// scope. The qualifier is dropped when the access is written out, so HLSL, which resolves a name by scope
-/// alone, reads the local where C# read the member.
+/// alone, reads the local where C# read a field and names it where C# called a method.
 /// </summary>
 /// <remarks>
 /// The shaders here carry a thread group size, which is what turns shader compilation on. A shape that is not
@@ -208,6 +208,70 @@ public class ShaderMemberHiddenByLocalTests
     }
 
     /// <summary>
+    /// A static method called through the shader type, with a local of its name declared ahead of the call.
+    /// The generated HLSL names the local there, which is no function to call.
+    /// </summary>
+    [TestMethod]
+    public void ALocalHidingAStaticMethodIsReported()
+    {
+        const string Source = """
+            using ComputeWeave;
+
+            namespace Shaders;
+
+            [ThreadGroupSize(DefaultThreadGroupSizes.X)]
+            [GeneratedComputeShaderDescriptor]
+            internal readonly partial struct Shader : IComputeShader
+            {
+                private readonly ReadWriteBuffer<float> buffer;
+
+                private static float Twice(float value) => value * 2.0f;
+
+                public void Execute()
+                {
+                    float Twice = 3.0f;
+
+                    this.buffer[0] = Shader.Twice(1.0f) + Twice;
+                }
+            }
+            """;
+
+        AssertReportedAt(Source, "HiddenStaticMethodTests", "Shader.Twice");
+    }
+
+    /// <summary>
+    /// An instance method called through <see langword="this"/>, with a local of its name declared ahead of
+    /// the call. The method is written out the way a static one is, so the local hides it the same way.
+    /// </summary>
+    [TestMethod]
+    public void ALocalHidingAnInstanceMethodIsReported()
+    {
+        const string Source = """
+            using ComputeWeave;
+
+            namespace Shaders;
+
+            [ThreadGroupSize(DefaultThreadGroupSizes.X)]
+            [GeneratedComputeShaderDescriptor]
+            internal readonly partial struct Shader : IComputeShader
+            {
+                private readonly ReadWriteBuffer<float> buffer;
+
+                private float Twice(float value) => value * 2.0f;
+
+                public void Execute()
+                {
+                    float Twice = 3.0f;
+
+                    this.buffer[0] = this.Twice(1.0f) + Twice;
+                }
+            }
+            """;
+
+        AssertReportedAt(Source, "HiddenInstanceMethodTests", "this.Twice");
+    }
+
+    /// <summary>
     /// A local declared after the access, in a statement. HLSL scopes it from its declaration, the way C#
     /// binds a simple name, so the access ahead of it reads the field and nothing is refused.
     /// </summary>
@@ -340,6 +404,72 @@ public class ShaderMemberHiddenByLocalTests
             """;
 
         AssertNotReported(Source, "ConstantNamesakeTests");
+    }
+
+    /// <summary>
+    /// A local declared after a call through the shader type. The function is what the name resolves to
+    /// until the declaration, in HLSL as in C#, so the call ahead of it is left alone.
+    /// </summary>
+    [TestMethod]
+    public void ALocalDeclaredAfterTheCallIsNotReported()
+    {
+        const string Source = """
+            using ComputeWeave;
+
+            namespace Shaders;
+
+            [ThreadGroupSize(DefaultThreadGroupSizes.X)]
+            [GeneratedComputeShaderDescriptor]
+            internal readonly partial struct Shader : IComputeShader
+            {
+                private readonly ReadWriteBuffer<float> buffer;
+
+                private static float Twice(float value) => value * 2.0f;
+
+                public void Execute()
+                {
+                    this.buffer[0] = Shader.Twice(1.0f);
+
+                    float Twice = 3.0f;
+
+                    this.buffer[1] = Twice;
+                }
+            }
+            """;
+
+        AssertNotReported(Source, "LaterLocalAfterCallTests");
+    }
+
+    /// <summary>
+    /// A local function named after a method called through the shader type. The local function is written
+    /// out under a name of its own, so it hides nothing and nothing is refused.
+    /// </summary>
+    [TestMethod]
+    public void ALocalFunctionNamedAfterAMethodIsNotReported()
+    {
+        const string Source = """
+            using ComputeWeave;
+
+            namespace Shaders;
+
+            [ThreadGroupSize(DefaultThreadGroupSizes.X)]
+            [GeneratedComputeShaderDescriptor]
+            internal readonly partial struct Shader : IComputeShader
+            {
+                private readonly ReadWriteBuffer<float> buffer;
+
+                private static float Twice(float value) => value * 2.0f;
+
+                public void Execute()
+                {
+                    static float Twice(float value) => value + value;
+
+                    this.buffer[0] = Shader.Twice(1.0f) + Twice(2.0f);
+                }
+            }
+            """;
+
+        AssertNotReported(Source, "LocalFunctionNamesakeTests");
     }
 
     /// <summary>

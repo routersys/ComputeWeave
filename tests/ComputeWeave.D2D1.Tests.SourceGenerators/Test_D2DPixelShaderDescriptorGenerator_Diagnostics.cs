@@ -867,6 +867,39 @@ public class Test_D2DPixelShaderDescriptorGenerator_Diagnostics
     }
 
     /// <summary>
+    /// A static method called through the shader type, with a local of its name declared ahead of the call.
+    /// The call is renamed by the same shared rewriting as the read above, so this pins the answer for a method.
+    /// </summary>
+    [TestMethod]
+    public void ALocalHidingAStaticMethodIsReported()
+    {
+        const string source = """
+            using ComputeWeave;
+            using ComputeWeave.D2D1;
+            using float4 = global::ComputeWeave.Float4;
+
+            namespace MyNamespace;
+
+            [D2DInputCount(0)]
+            [D2DShaderProfile(D2D1ShaderProfile.PixelShader50)]
+            [D2DGeneratedPixelShaderDescriptor]
+            internal readonly partial struct MyShader : ID2D1PixelShader
+            {
+                private static float Twice(float value) => value * 2.0f;
+
+                public float4 Execute()
+                {
+                    float Twice = 3.0f;
+
+                    return new float4(MyShader.Twice(1.0f) + Twice, 0, 0, 1);
+                }
+            }
+            """;
+
+        CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnostics(source, "CMPWD2D0104");
+    }
+
+    /// <summary>
     /// An attribute of the author's own, carrying syntax the set has no verdict for, on an imported method.
     /// </summary>
     /// <remarks>
