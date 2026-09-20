@@ -11,10 +11,10 @@ namespace ComputeWeave.D2D1.Tests;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <c>UnsupportedHlslIntrinsicAnalyzer</c> rejects these nine with <c>CMPW0112</c>. It lives in
-/// <c>ComputeWeave.SourceGenerators</c>, which no D2D1 consumer loads, so the rejection does not
-/// reach the authoring path. A pixel shader has pixels to discard and a stage that computes
-/// derivatives, so eight of the nine are ordinary here.
+/// The compute generator rejects these nine with <c>CMPW0112</c>, from the rewriting it alone runs,
+/// so the rejection does not reach the authoring path even in a project referencing both products.
+/// A pixel shader has pixels to discard and a stage that computes derivatives, so eight of the nine
+/// are ordinary here.
 /// </para>
 /// <para>
 /// <c>Abort</c> is the exception, and not for the compute-side reason. D2D1 compiles a shader twice
@@ -26,12 +26,11 @@ namespace ComputeWeave.D2D1.Tests;
 /// the tests below pin both halves against controls that isolate the instruction from the options.
 /// </para>
 /// <para>
-/// That this file compiles at all is half the measurement: this project loads
-/// <c>ComputeWeave.D2D1.SourceGenerators</c> and <c>ComputeWeave.Core.SourceGenerators</c> as
-/// analyzers, and a <c>CMPW0112</c> reaching here would be an error. The other half is the
-/// compute-side counterpart, <c>UnsupportedHlslIntrinsicAnalyzerTests</c>, which asserts that the
-/// same nine names do produce <c>CMPW0112</c>. Without it, this test would also pass if the
-/// analyzer had simply stopped working.
+/// That this file compiles and its effects draw is half the measurement: the eight are usable here.
+/// The other half is the compute-side counterpart, <c>UnsupportedIntrinsicTests</c>, which asserts
+/// that the same nine names do produce <c>CMPW0112</c> in a compute shader, and that a type which is
+/// no compute shader is left alone. Without it, this test would also pass if the refusal had simply
+/// stopped working.
 /// </para>
 /// </remarks>
 [TestClass]

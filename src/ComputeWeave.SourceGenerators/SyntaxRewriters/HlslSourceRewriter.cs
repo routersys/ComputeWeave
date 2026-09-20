@@ -16,6 +16,40 @@ partial class HlslSourceRewriter
     }
 
     /// <summary>
+    /// Reports an intrinsic being invoked that a compute shader cannot use.
+    /// </summary>
+    /// <param name="node">The invocation that is about to be written out as it stands.</param>
+    /// <param name="metadataName">The fully qualified metadata name of the intrinsic being invoked.</param>
+    /// <param name="method">The resolved target of <paramref name="node"/>.</param>
+    /// <returns>Whether the invocation was reported, in which case the caller leaves it alone.</returns>
+    /// <remarks>
+    /// <para>
+    /// The shared <c>Hlsl</c> type declares the intrinsics of the pixel stage as well, and DXC refuses each of them
+    /// under <c>cs_6_0</c> for a reason of its own, which the report names. Reporting here keeps the call from reaching
+    /// the compiler at all, the compilation step being skipped for a shader whose rewriting produced an error, so the
+    /// author sees one report at their own line rather than that report and the forwarded compiler error together.
+    /// </para>
+    /// <para>
+    /// This was an analyzer before, reading every invocation of the compilation whatever type held it. A project
+    /// referencing the Direct2D product as well loads that analyzer too, and a pixel shader there uses the clip and
+    /// the derivatives legitimately, so the refusal is on the rewriting the compute generator alone runs. The report
+    /// is on the type the two rewriters share, because a derivative returns a value and so can be written into a
+    /// static field initializer as well as into a body.
+    /// </para>
+    /// </remarks>
+    protected bool ReportUnsupportedIntrinsic(InvocationExpressionSyntax node, string metadataName, IMethodSymbol method)
+    {
+        if (!HlslKnownMethods.TryGetUnsupportedReason(metadataName, out string? reason))
+        {
+            return false;
+        }
+
+        Diagnostics.Add(UnsupportedHlslIntrinsicInvocation, node, method.Name, reason);
+
+        return true;
+    }
+
+    /// <summary>
     /// Reports an intrinsic that writes through an out parameter being given a matrix the compiler terminates on.
     /// </summary>
     /// <param name="node">The invocation that is about to be written out as it stands.</param>
