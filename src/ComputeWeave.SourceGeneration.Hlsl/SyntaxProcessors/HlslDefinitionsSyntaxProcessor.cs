@@ -439,21 +439,19 @@ internal static class HlslDefinitionsSyntaxProcessor
     /// </para>
     /// <para>
     /// The walk starts from the initializer of every static field the generated HLSL declares, the ones of the
-    /// shader and the imported ones alike, and follows every declaration it reaches: the method, local function
-    /// or constructor a call resolves to, and the initializer of a static field of another type, whose
+    /// shader and the imported ones alike, and follows every declaration it reaches (see
+    /// <see cref="ReachedDeclarationWalker"/>) and the initializer of a static field of another type, whose
     /// initializers C# runs when that type is first touched. A field of the same type is not walked into, its
-    /// initializer having run already or not running until its own turn, and a local function is walked only
-    /// through a call, C# not running one that is never called. An access two initializers both perform too
-    /// early is one place to change, so it is reported once, for the first of the two in declaration order.
-    /// The walk does not follow the order of the statements it passes, so a read after a write in the same
-    /// declaration is reported like any other.
+    /// initializer having run already or not running until its own turn. An access two initializers both
+    /// perform too early is one place to change, so it is reported once, for the first of the two in
+    /// declaration order. The walk does not follow the order of the statements it passes, so a read after a
+    /// write in the same declaration is reported like any other.
     /// </para>
     /// <para>
     /// This runs once after the initializers are rewritten rather than as they are, because a rewriting does
     /// not pass through every declaration an initializer reaches: a declaration is imported once, so one the
     /// body or an earlier initializer imported is not rewritten again, and a method of the shader is never
-    /// imported. Semantic information is resolved only for the kinds an access, a call or a construction can
-    /// be written as, an access written as a member access resolving on the access alone.
+    /// imported.
     /// </para>
     /// </remarks>
     public static void ReportStaticFieldAccessesBeforeInitialization(
@@ -492,17 +490,6 @@ internal static class HlslDefinitionsSyntaxProcessor
             return order;
         }
 
-        // A simple assignment to the field and an out argument write it without reading it
-        static bool IsWrite(IFieldReferenceOperation reference)
-        {
-            return reference.Parent switch
-            {
-                ISimpleAssignmentOperation assignment => ReferenceEquals(assignment.Target, reference),
-                IArgumentOperation { Parameter.RefKind: RefKind.Out } => true,
-                _ => false
-            };
-        }
-
         // The imported fields are walked in the declaration order of their type too, so that an access two of
         // them perform too early names the first of the two
         HashSet<IFieldSymbol> importedFields = new(staticFieldDefinitions.Keys, SymbolEqualityComparer.Default);
@@ -525,66 +512,212 @@ internal static class HlslDefinitionsSyntaxProcessor
             HashSet<IFieldSymbol> pending = new(
                 GetInitializers(field.ContainingType).SkipWhile(candidate => !SymbolEqualityComparer.Default.Equals(candidate.Field, field)).Select(candidate => candidate.Field),
                 SymbolEqualityComparer.Default);
-            HashSet<ISymbol> visited = new(SymbolEqualityComparer.Default);
 
-            WalkReachedNodes(initializer);
-
-            void WalkReachedDeclaration(ISymbol symbol, SyntaxNode? root)
+            ReachedDeclarationWalker walk = new(semanticModel, token, (walker, node, reference) =>
             {
-                if (root is not null && visited.Add(symbol))
+                IFieldSymbol reachedField = reference.Field;
+
+                if (pending.Contains(reachedField))
                 {
-                    WalkReachedNodes(root);
+                    // A write to the field being initialized is overwritten by its initializer in the
+                    // generated HLSL as well, so it is the one access that is not reported
+                    if ((!IsOnlyWritten(reference) || !SymbolEqualityComparer.Default.Equals(reachedField, field)) &&
+                        reportedAccesses.Add(node))
+                    {
+                        diagnostics.Add(StaticFieldAccessedBeforeInitialization, node, reachedField, field);
+                    }
                 }
-            }
-
-            void WalkReachedNodes(SyntaxNode root)
-            {
-                // The initializer can be the access or the call itself, so the root counts as a reached node too.
-                // A local function is entered from a call to it, the way a method is, rather than from the body
-                // it is declared in, that body not running it unless it calls it
-                foreach (SyntaxNode node in root.DescendantNodesAndSelf(descendant => descendant is not LocalFunctionStatementSyntax || ReferenceEquals(descendant, root)))
+                else if (!SymbolEqualityComparer.Default.Equals(reachedField.ContainingType, field.ContainingType) &&
+                         reachedField.TryGetSyntaxNode(token, out VariableDeclaratorSyntax? reachedDeclarator))
                 {
-                    token.ThrowIfCancellationRequested();
+                    walker.Walk(reachedField, reachedDeclarator.Initializer?.Value);
+                }
+            });
 
-                    if (node is not
-                        (IdentifierNameSyntax or
-                         MemberAccessExpressionSyntax or
-                         InvocationExpressionSyntax or
-                         BaseObjectCreationExpressionSyntax))
+            walk.WalkNodes(initializer);
+        }
+    }
+
+    /// <summary>
+    /// Reports every static field the generated HLSL declares that a static constructor C# would run assigns.
+    /// </summary>
+    /// <param name="structDeclarationSymbol">The type symbol for the shader type.</param>
+    /// <param name="declaredFields">The static fields of the shader type the generated HLSL declares.</param>
+    /// <param name="staticMethods">The collection of discovered static methods.</param>
+    /// <param name="instanceMethods">The collection of discovered instance methods for custom struct types.</param>
+    /// <param name="constructors">The collection of discovered constructors for custom struct types.</param>
+    /// <param name="staticFieldDefinitions">The collection of discovered static field definitions.</param>
+    /// <param name="semanticModel">The <see cref="SemanticModelProvider"/> instance for the type to process.</param>
+    /// <param name="diagnostics">The collection of produced <see cref="DiagnosticInfo"/> instances.</param>
+    /// <param name="token">The <see cref="CancellationToken"/> used to cancel the operation, if needed.</param>
+    /// <remarks>
+    /// <para>
+    /// C# runs the static constructor of a type when the type is first touched, after the initializers of its
+    /// static fields, and a static field the constructor assigns holds that value from then on. The generated
+    /// HLSL runs no static constructor: a static field holds the value of its initializer there, or zero
+    /// without one, so a field a static constructor assigns computes a value C# never produces.
+    /// </para>
+    /// <para>
+    /// The static constructors walked are those of every type the shader touches, which are the shader type
+    /// and the types of every imported declaration, and each is followed through every declaration it reaches
+    /// (see <see cref="ReachedDeclarationWalker"/>). A write to any static field the generated HLSL declares is
+    /// reported, whichever type the constructor belongs to, C# running that constructor when its type is
+    /// touched and the generated HLSL never. A read is not, the constructor leaving the field as it was. A
+    /// write two constructors both reach is reported once, for the first of the two in the order the types
+    /// were touched.
+    /// </para>
+    /// </remarks>
+    public static void ReportStaticFieldsAssignedByAStaticConstructor(
+        INamedTypeSymbol structDeclarationSymbol,
+        IEnumerable<IFieldSymbol> declaredFields,
+        IDictionary<IMethodSymbol, MethodDeclarationSyntax> staticMethods,
+        IDictionary<IMethodSymbol, MethodDeclarationSyntax> instanceMethods,
+        IDictionary<IMethodSymbol, (MethodDeclarationSyntax, MethodDeclarationSyntax)> constructors,
+        IDictionary<IFieldSymbol, HlslStaticField> staticFieldDefinitions,
+        SemanticModelProvider semanticModel,
+        ImmutableArrayBuilder<DiagnosticInfo> diagnostics,
+        CancellationToken token)
+    {
+        HashSet<IFieldSymbol> declaredStaticFields = new(declaredFields.Concat(staticFieldDefinitions.Keys), SymbolEqualityComparer.Default);
+        HashSet<SyntaxNode> reportedWrites = [];
+
+        // The types the shader touches, in the order the rewriting reached them, the shader type first
+        HashSet<INamedTypeSymbol> touchedTypes = new(SymbolEqualityComparer.Default);
+        List<INamedTypeSymbol> touchedTypeOrder = [];
+
+        List<ISymbol> members = [structDeclarationSymbol, .. staticMethods.Keys, .. instanceMethods.Keys, .. constructors.Keys, .. staticFieldDefinitions.Keys];
+
+        foreach (ISymbol member in members)
+        {
+            INamedTypeSymbol type = member as INamedTypeSymbol ?? member.ContainingType;
+
+            if (touchedTypes.Add(type))
+            {
+                touchedTypeOrder.Add(type);
+            }
+        }
+
+        foreach (INamedTypeSymbol type in touchedTypeOrder)
+        {
+            foreach (IMethodSymbol constructor in type.StaticConstructors)
+            {
+                token.ThrowIfCancellationRequested();
+
+                if (!constructor.TryGetSyntaxNode(token, out ConstructorDeclarationSyntax? declaration))
+                {
+                    continue;
+                }
+
+                ReachedDeclarationWalker walk = new(semanticModel, token, (_, node, reference) =>
+                {
+                    if (declaredStaticFields.Contains(reference.Field) &&
+                        IsWritten(reference) &&
+                        reportedWrites.Add(node))
                     {
-                        continue;
+                        diagnostics.Add(StaticFieldAssignedByStaticConstructor, node, reference.Field, type);
                     }
+                });
 
-                    switch (semanticModel.For(node).GetOperation(node, token))
-                    {
-                        case IFieldReferenceOperation { Field: { IsStatic: true, IsConst: false } reachedField } reference:
-                            if (pending.Contains(reachedField))
-                            {
-                                // A write to the field being initialized is overwritten by its initializer in
-                                // the generated HLSL as well, so it is the one access that is not reported
-                                if ((!IsWrite(reference) || !SymbolEqualityComparer.Default.Equals(reachedField, field)) &&
-                                    reportedAccesses.Add(node))
-                                {
-                                    diagnostics.Add(StaticFieldAccessedBeforeInitialization, node, reachedField, field);
-                                }
-                            }
-                            else if (!SymbolEqualityComparer.Default.Equals(reachedField.ContainingType, field.ContainingType) &&
-                                     reachedField.TryGetSyntaxNode(token, out VariableDeclaratorSyntax? reachedDeclarator))
-                            {
-                                WalkReachedDeclaration(reachedField, reachedDeclarator.Initializer?.Value);
-                            }
+                walk.Walk(constructor, declaration);
+            }
+        }
+    }
 
-                            break;
-                        case IInvocationOperation { TargetMethod: { MethodKind: MethodKind.LocalFunction } localFunction }:
-                            WalkReachedDeclaration(localFunction, localFunction.TryGetSyntaxNode(token, out LocalFunctionStatementSyntax? localFunctionStatement) ? localFunctionStatement : null);
-                            break;
-                        case IInvocationOperation { TargetMethod: { } method }:
-                            WalkReachedDeclaration(method, method.TryGetSyntaxNode(token, out MethodDeclarationSyntax? methodDeclaration) ? methodDeclaration : null);
-                            break;
-                        case IObjectCreationOperation { Constructor: { } constructor }:
-                            WalkReachedDeclaration(constructor, constructor.TryGetSyntaxNode(token, out ConstructorDeclarationSyntax? constructorDeclaration) ? constructorDeclaration : null);
-                            break;
-                    }
+    /// <summary>
+    /// Checks whether a reference to a field writes it without reading it.
+    /// </summary>
+    /// <param name="reference">The <see cref="IFieldReferenceOperation"/> instance to check.</param>
+    /// <returns>Whether <paramref name="reference"/> is the target of a simple assignment or an <see langword="out"/> argument.</returns>
+    private static bool IsOnlyWritten(IFieldReferenceOperation reference)
+    {
+        return reference.Parent switch
+        {
+            ISimpleAssignmentOperation assignment => ReferenceEquals(assignment.Target, reference),
+            IArgumentOperation { Parameter.RefKind: RefKind.Out } => true,
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Checks whether a reference to a field writes it, whether or not it reads it as well.
+    /// </summary>
+    /// <param name="reference">The <see cref="IFieldReferenceOperation"/> instance to check.</param>
+    /// <returns>Whether <paramref name="reference"/> is the target of an assignment, an increment or a decrement, or a <see langword="ref"/> or <see langword="out"/> argument.</returns>
+    private static bool IsWritten(IFieldReferenceOperation reference)
+    {
+        return reference.Parent switch
+        {
+            IAssignmentOperation assignment => ReferenceEquals(assignment.Target, reference),
+            IIncrementOrDecrementOperation increment => ReferenceEquals(increment.Target, reference),
+            IArgumentOperation { Parameter.RefKind: RefKind.Out or RefKind.Ref } => true,
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// A walk over what a declaration reaches: the method, local function or constructor each call in it
+    /// resolves to, each declaration once, and whatever the visitor walks further.
+    /// </summary>
+    /// <param name="semanticModel">The <see cref="SemanticModelProvider"/> instance for the type to process.</param>
+    /// <param name="token">The <see cref="CancellationToken"/> used to cancel the operation, if needed.</param>
+    /// <param name="visitFieldReference">Called with the walker, the node and the reference for every static, non constant field a reached node references.</param>
+    /// <remarks>
+    /// The root counts as a reached node too, an initializer being able to be the access or the call itself. A
+    /// local function is entered from a call to it, the way a method is, rather than from the body it is
+    /// declared in, that body not running it unless it calls it. Semantic information is resolved only for the
+    /// kinds an access, a call or a construction can be written as, an access written as a member access
+    /// resolving on the access alone.
+    /// </remarks>
+    private sealed class ReachedDeclarationWalker(SemanticModelProvider semanticModel, CancellationToken token, Action<ReachedDeclarationWalker, SyntaxNode, IFieldReferenceOperation> visitFieldReference)
+    {
+        private readonly HashSet<ISymbol> visited = new(SymbolEqualityComparer.Default);
+
+        /// <summary>
+        /// Walks a declaration, unless it was walked already or has no syntax to walk.
+        /// </summary>
+        /// <param name="symbol">The symbol for the declaration.</param>
+        /// <param name="root">The syntax of the declaration, if it has any.</param>
+        public void Walk(ISymbol symbol, SyntaxNode? root)
+        {
+            if (root is not null && this.visited.Add(symbol))
+            {
+                WalkNodes(root);
+            }
+        }
+
+        /// <summary>
+        /// Walks the nodes of a body and every declaration they reach.
+        /// </summary>
+        /// <param name="root">The body to walk.</param>
+        public void WalkNodes(SyntaxNode root)
+        {
+            foreach (SyntaxNode node in root.DescendantNodesAndSelf(descendant => descendant is not LocalFunctionStatementSyntax || ReferenceEquals(descendant, root)))
+            {
+                token.ThrowIfCancellationRequested();
+
+                if (node is not
+                    (IdentifierNameSyntax or
+                     MemberAccessExpressionSyntax or
+                     InvocationExpressionSyntax or
+                     BaseObjectCreationExpressionSyntax))
+                {
+                    continue;
+                }
+
+                switch (semanticModel.For(node).GetOperation(node, token))
+                {
+                    case IFieldReferenceOperation { Field: { IsStatic: true, IsConst: false } } reference:
+                        visitFieldReference(this, node, reference);
+                        break;
+                    case IInvocationOperation { TargetMethod: { MethodKind: MethodKind.LocalFunction } localFunction }:
+                        Walk(localFunction, localFunction.TryGetSyntaxNode(token, out LocalFunctionStatementSyntax? localFunctionStatement) ? localFunctionStatement : null);
+                        break;
+                    case IInvocationOperation { TargetMethod: { } method }:
+                        Walk(method, method.TryGetSyntaxNode(token, out MethodDeclarationSyntax? methodDeclaration) ? methodDeclaration : null);
+                        break;
+                    case IObjectCreationOperation { Constructor: { } constructor }:
+                        Walk(constructor, constructor.TryGetSyntaxNode(token, out ConstructorDeclarationSyntax? constructorDeclaration) ? constructorDeclaration : null);
+                        break;
                 }
             }
         }

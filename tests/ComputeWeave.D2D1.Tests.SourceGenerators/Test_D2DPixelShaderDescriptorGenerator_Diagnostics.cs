@@ -529,6 +529,100 @@ public class Test_D2DPixelShaderDescriptorGenerator_Diagnostics
     }
 
     /// <summary>
+    /// A static method of the shader called through the shader type. The rename to the name alone is shared
+    /// with the compute generator, so what this pins is that the pixel shader path reaches it from the body.
+    /// </summary>
+    [TestMethod]
+    public void AShaderMethodCalledThroughTheShaderTypeIsAccepted()
+    {
+        const string source = """
+            using ComputeWeave;
+            using ComputeWeave.D2D1;
+            using float4 = global::ComputeWeave.Float4;
+
+            namespace MyNamespace;
+
+            [D2DInputCount(0)]
+            [D2DShaderProfile(D2D1ShaderProfile.PixelShader50)]
+            [D2DGeneratedPixelShaderDescriptor]
+            internal readonly partial struct MyShader : ID2D1PixelShader
+            {
+                private static float Twice() => 2.0f;
+
+                public float4 Execute()
+                {
+                    return new float4(MyShader.Twice(), 0, 0, 1);
+                }
+            }
+            """;
+
+        CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnostics(source);
+    }
+
+    /// <summary>
+    /// The same call in a static field initializer, which the rewriter for initializers answers.
+    /// </summary>
+    [TestMethod]
+    public void AShaderMethodCalledThroughTheShaderTypeInAnInitializerIsAccepted()
+    {
+        const string source = """
+            using ComputeWeave;
+            using ComputeWeave.D2D1;
+            using float4 = global::ComputeWeave.Float4;
+
+            namespace MyNamespace;
+
+            [D2DInputCount(0)]
+            [D2DShaderProfile(D2D1ShaderProfile.PixelShader50)]
+            [D2DGeneratedPixelShaderDescriptor]
+            internal readonly partial struct MyShader : ID2D1PixelShader
+            {
+                private static readonly float Scale = MyShader.Twice();
+
+                private static float Twice() => 2.0f;
+
+                public float4 Execute()
+                {
+                    return new float4(Scale, 0, 0, 1);
+                }
+            }
+            """;
+
+        CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnostics(source);
+    }
+
+    /// <summary>
+    /// An instance method of the shader called through <see langword="this"/>, which the generated HLSL has
+    /// no counterpart for either.
+    /// </summary>
+    [TestMethod]
+    public void AShaderMethodCalledThroughThisIsAccepted()
+    {
+        const string source = """
+            using ComputeWeave;
+            using ComputeWeave.D2D1;
+            using float4 = global::ComputeWeave.Float4;
+
+            namespace MyNamespace;
+
+            [D2DInputCount(0)]
+            [D2DShaderProfile(D2D1ShaderProfile.PixelShader50)]
+            [D2DGeneratedPixelShaderDescriptor]
+            internal readonly partial struct MyShader : ID2D1PixelShader
+            {
+                private float Twice() => 2.0f;
+
+                public float4 Execute()
+                {
+                    return new float4(this.Twice(), 0, 0, 1);
+                }
+            }
+            """;
+
+        CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnostics(source);
+    }
+
+    /// <summary>
     /// A type declaring a primary constructor. The rewriters are shared with the compute generator, so what
     /// this pins is that the pixel shader generator answers with its own identifier.
     /// </summary>
@@ -1255,6 +1349,51 @@ public class Test_D2DPixelShaderDescriptorGenerator_Diagnostics
             """;
 
         CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnosticIsReported(source, "CMPWD2D0096");
+    }
+
+    /// <summary>
+    /// A static field of another type that its static constructor assigns, read by the shader. C# runs the
+    /// constructor when the type is first touched, whereas the generated HLSL runs none and reads zero.
+    /// </summary>
+    /// <remarks>
+    /// The walk is shared with the compute generator, and each of the two carries the descriptor under its own
+    /// identifier, so a row on one of them says nothing about the other.
+    /// </remarks>
+    [TestMethod]
+    public void AStaticFieldAssignedByAStaticConstructorIsDiagnosed()
+    {
+        const string source = """
+            using ComputeWeave;
+            using ComputeWeave.D2D1;
+            using float4 = global::ComputeWeave.Float4;
+
+            namespace MyNamespace;
+
+            internal static class Helper
+            {
+                public static readonly float Amount;
+
+                static Helper()
+                {
+                    Amount = 5.0f;
+                }
+            }
+
+            [D2DInputCount(0)]
+            [D2DShaderProfile(D2D1ShaderProfile.PixelShader50)]
+            [D2DGeneratedPixelShaderDescriptor]
+            internal readonly partial struct MyShader : ID2D1PixelShader
+            {
+                private static readonly float Value = Helper.Amount;
+
+                public float4 Execute()
+                {
+                    return Value;
+                }
+            }
+            """;
+
+        CSharpGeneratorTest<D2DPixelShaderDescriptorGenerator>.VerifyDiagnosticIsReported(source, "CMPWD2D0103");
     }
 
     /// <summary>
