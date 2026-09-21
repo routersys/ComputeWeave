@@ -110,6 +110,7 @@ internal sealed partial class StaticFieldRewriter(
             {
                 if (SymbolEqualityComparer.Default.Equals(staticFieldOperation.Field.ContainingType, ShaderType))
                 {
+                    // An initializer declares no local and has no parameter, so nothing hides the name dropped here
                     _ = HlslKnownKeywords.TryGetMappedName(staticFieldOperation.Field.Name, out string? mappedFieldName);
 
                     return IdentifierName(mappedFieldName ?? staticFieldOperation.Field.Name);
@@ -262,7 +263,7 @@ internal sealed partial class StaticFieldRewriter(
                     return VisitImportedStaticMethodInvocation(node, updatedNode, method);
                 }
 
-                return VisitShaderMethodInvocation(updatedNode);
+                return VisitShaderMethodInvocation(node, updatedNode, method);
             }
         }
 
